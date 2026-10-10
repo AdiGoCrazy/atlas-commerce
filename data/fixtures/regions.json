@@ -20,7 +20,7 @@
   {
     "id": "harbor",
     "name": "Harbor Bay",
-    "state": "candidate",
+    "state": "awaiting_approval",
     "locale": "en_US",
     "available_source_types": ["news", "forum", "social", "event"],
     "created_at": "2026-10-10T08:00:00+00:00",

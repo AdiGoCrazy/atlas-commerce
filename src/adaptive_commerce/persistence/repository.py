@@ -74,12 +74,23 @@ class Repository:
             ),
         )
 
-    def update_region_state(self, region_id: str, state: RegionState) -> bool:
-        """Update region lifecycle state."""
+    def update_region_state(
+        self,
+        region_id: str,
+        state: RegionState,
+        *,
+        expected_state: RegionState | None = None,
+    ) -> bool:
+        """Update region state, optionally only if it still has an expected value."""
         now = datetime.now(timezone.utc).isoformat()
+        where = "WHERE id = ?"
+        parameters: tuple[Any, ...] = (state.value, now, region_id)
+        if expected_state is not None:
+            where += " AND state = ?"
+            parameters += (expected_state.value,)
         cur = self.conn.execute(
-            "UPDATE regions SET state = ?, updated_at = ? WHERE id = ?",
-            (state.value, now, region_id),
+            f"UPDATE regions SET state = ?, updated_at = ? {where}",
+            parameters,
         )
         return cur.rowcount > 0
 

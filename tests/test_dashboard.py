@@ -28,16 +28,30 @@ def tracing_lifecycle():
     initialize_tracing.cache_clear()
 
 
-def test_saved_candidate_survives_reload_and_never_activates(tmp_path):
+def test_assessed_region_survives_reload_and_awaits_approval(tmp_path):
     path = tmp_path / "demo.db"
     bootstrap_database(path)
     result = submit_candidate(path, CandidateRequest(name="New Valley", assumptions=FinanceInputs()))
     bootstrap_database(path)
     assert len(list_regions(path)) == 4
-    assert result.region.state == RegionState.candidate
+    assert result.region.state == RegionState.awaiting_approval
     assert candidate_report(path, result.region.id) == result.finance
     assert preview_products(path, result.region.id) == []
     assert len(preview_products(path, "cedar")) == 5
+
+
+def test_bootstrap_migrates_approved_legacy_candidate(tmp_path):
+    path = tmp_path / "legacy.db"
+    bootstrap_database(path)
+    with connect(path) as conn:
+        conn.execute(
+            "UPDATE regions SET state = ? WHERE id = ?",
+            (RegionState.candidate.value, "harbor"),
+        )
+    bootstrap_database(path)
+    assert next(
+        region for region in list_regions(path) if region.id == "harbor"
+    ).state == RegionState.awaiting_approval
 
 
 def test_cfo_provenance_survives_database_reload(tmp_path):
@@ -100,11 +114,11 @@ def test_streamlit_shell_and_candidate_form(tmp_path, monkeypatch):
     app.button[0].click().run(timeout=15)
     assert not app.exception
     assert len(app.selectbox[0].options) == 4
-    assert any("Candidate saved" in item.value for item in app.success)
+    assert any("Candidate assessed" in item.value for item in app.success)
     assert any("local fallback" in item.value for item in app.warning)
     assert len(app.dataframe) == 1
     path = tmp_path / "ui.db"
-    assert next(r for r in list_regions(path) if r.name == "Demo Coast").state == RegionState.candidate
+    assert next(r for r in list_regions(path) if r.name == "Demo Coast").state == RegionState.awaiting_approval
 
 
 def test_empty_candidate_name_does_not_write(tmp_path, monkeypatch):
@@ -117,3 +131,16 @@ def test_empty_candidate_name_does_not_write(tmp_path, monkeypatch):
     assert not app.exception
     assert app.error
     assert len(list_regions(path)) == 3
+
+
+def test_approval_button_activates_seeded_region(tmp_path, monkeypatch):
+    path = tmp_path / "approval.db"
+    monkeypatch.setenv("ATLAS_DB_PATH", str(path))
+    monkeypatch.delenv("NEATLOGS_API_KEY", raising=False)
+    app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app.py"))
+    app.run(timeout=15)
+    app.selectbox[0].set_value("harbor").run(timeout=15)
+    next(button for button in app.button if button.label == "Approve Candidate").click()
+    app.run(timeout=15)
+    assert not app.exception
+    assert next(region for region in list_regions(path) if region.id == "harbor").state == RegionState.active

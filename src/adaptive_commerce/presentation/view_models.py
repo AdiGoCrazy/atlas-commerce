@@ -78,9 +78,25 @@ def prepare_approval_state(state: str) -> dict:
     if state == "candidate":
         return {
             "status": "Candidate",
-            "show_actions": True,
+            "show_actions": False,
             "actions_enabled": False,
-            "message": "Awaiting human approval.",
+            "message": "Assessment has not started.",
+        }
+
+    if state == "awaiting_approval":
+        return {
+            "status": "Awaiting approval",
+            "show_actions": True,
+            "actions_enabled": True,
+            "message": "Financial assessment is ready for human approval.",
+        }
+
+    if state == "assessing":
+        return {
+            "status": "Assessing",
+            "show_actions": False,
+            "actions_enabled": False,
+            "message": "Financial assessment is in progress.",
         }
 
     if state == "active":

@@ -113,12 +113,20 @@ from adaptive_commerce.presentation.view_models import (
 )
 
 
-def test_candidate_approval_state():
+def test_candidate_state_waits_for_assessment():
     result = prepare_approval_state("candidate")
 
     assert result["status"] == "Candidate"
-    assert result["show_actions"] is True
+    assert result["show_actions"] is False
     assert result["actions_enabled"] is False
+
+
+def test_awaiting_approval_state_enables_human_actions():
+    result = prepare_approval_state("awaiting_approval")
+
+    assert result["status"] == "Awaiting approval"
+    assert result["show_actions"] is True
+    assert result["actions_enabled"] is True
 
 
 def test_active_approval_state():

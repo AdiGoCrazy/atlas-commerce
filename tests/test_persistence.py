@@ -128,7 +128,7 @@ class TestPersistence:
         assert len(regions) == 3
         region_ids = {r.id for r in regions}
         assert region_ids == {"cedar", "aspen", "harbor"}
-        assert regions[0].state in (RegionState.active, RegionState.candidate)
+        assert regions[0].state in (RegionState.active, RegionState.awaiting_approval)
 
         # Products - parse JSON fields
         rows = empty_db.execute("SELECT * FROM products").fetchall()
