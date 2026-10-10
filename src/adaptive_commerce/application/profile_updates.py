@@ -6,11 +6,11 @@ from decimal import Context, Decimal, localcontext
 from enum import Enum
 from typing import Annotated, Sequence
 
-import neatlogs
 from pydantic import BaseModel, ConfigDict, Field
 
 from adaptive_commerce.agents.signals import NormalizedSignal, event_window_for_signal
 from adaptive_commerce.domain import EventWindow, RegionProfile
+from adaptive_commerce.integrations.observability import traced_step
 
 logger = logging.getLogger(__name__)
 
@@ -134,7 +134,14 @@ def _bounded_changes(
         }
 
 
-@neatlogs.span(kind="CHAIN", name="propose_profile_update")
+@traced_step(
+    "CHAIN", "update_proposal",
+    lambda args: {
+        "region_id": args["profile"].region_id,
+        "cycle_id": args.get("cycle_id"),
+        "version_id": args.get("candidate_version_id"),
+    },
+)
 def propose_profile_update(
     profile: RegionProfile,
     signals: Sequence[NormalizedSignal],

@@ -1,5 +1,6 @@
 """Service persistence and Streamlit shell acceptance tests."""
 
+import json
 from pathlib import Path
 import sqlite3
 
@@ -8,11 +9,11 @@ import pytest
 from streamlit.testing.v1 import AppTest
 
 from adaptive_commerce.application.dashboard import (
-    CandidateRequest, bootstrap_database, candidate_report, list_regions,
+    CandidateRequest, bootstrap_database, candidate_report, list_regions, persist_cfo_import,
     preview_products, submit_candidate,
 )
 from adaptive_commerce.domain import RegionState
-from adaptive_commerce.integrations.finance import FinanceInputs
+from adaptive_commerce.integrations.finance import CfoScenarioImport, FinanceInputs, assess_finance
 from adaptive_commerce.integrations.observability import initialize_tracing
 from adaptive_commerce.persistence import connect
 
@@ -37,6 +38,40 @@ def test_saved_candidate_survives_reload_and_never_activates(tmp_path):
     assert candidate_report(path, result.region.id) == result.finance
     assert preview_products(path, result.region.id) == []
     assert len(preview_products(path, "cedar")) == 5
+
+
+def test_cfo_provenance_survives_database_reload(tmp_path):
+    path = tmp_path / "provenance.db"
+    bootstrap_database(path)
+    candidate = submit_candidate(path, CandidateRequest(name="Harbor Bay", assumptions=FinanceInputs()))
+    imported = CfoScenarioImport(
+        workspace_id=None, region_id=candidate.region.id, model_id="model-123",
+        scenario_id="default_layer", source_url="runway:scenario", model_ref="Harbor model",
+        assumptions={
+            "monthly_traffic": 50000, "conversion_rate": 0.025,
+            "avg_order_value": 85, "product_cost_per_order": 42.77,
+            "fulfillment_cost_per_order": 12, "campaign_cost_monthly": 15000,
+            "inference_cost_monthly": 3000, "infrastructure_cost_monthly": 500,
+            "cash_balance": 30000,
+        },
+        result={"scenario_name": "Base", "revenue": 106250, "profit": 1,
+                "gross_profit": 2, "product_cost": 3, "fulfillment_cost": 4,
+                "gross_margin": 0.3, "operating_cost": 5, "campaign_roi": 0.2,
+                "runway_months": None, "opportunity_adjusted_profit": None},
+    )
+
+    assert persist_cfo_import(path, imported)
+    assert candidate_report(path, candidate.region.id) == candidate.finance
+    with connect(path) as conn:
+        row = conn.execute(
+            "SELECT assumptions, cfo_reference FROM finance_assessments WHERE region_id = ?",
+            (candidate.region.id,),
+        ).fetchone()
+    stored = json.loads(row["assumptions"])
+    assert row["cfo_reference"] == "model-123/default_layer"
+    assert stored["cfo_ai_import"]["workspace_id"] is None
+    assert stored["cfo_ai_import"]["assumptions"]["cash_balance"] == 30000
+    assert stored["cfo_ai_import"]["model_ref"] == "Harbor model"
 
 
 def test_failed_assessment_write_rolls_back_candidate(tmp_path):

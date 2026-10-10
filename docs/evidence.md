@@ -44,6 +44,10 @@ This manifest records observed results, not partner completion claims.
   Owner S: configure the project key, run `--probe --json`, retrieve a real
   candidate/storefront trace, and record the evidence here.
 - Full worker/guardrail/evaluation/retry spans remain Sprint 2/3 work.
+- The Sprint 2 adapter adds content-free spans for candidate finance assessment,
+  signal extraction, recommendation ranking, and update proposals. Signal spans
+  include region IDs; proposal spans include region, cycle, and candidate-version
+  IDs. These are instrumented paths, not a claim of live Atlas trace delivery.
 - Reference: https://docs.neatlogs.com/sdk/python
 
 ## Entire — repository search verified
@@ -70,6 +74,12 @@ This manifest records observed results, not partner completion claims.
   Synthetic import tests prove validation only, not provider authenticity.
 - The local model is reproducible and labeled simulated. Importing an export
   does not mark the MCP connection successful or authorize activation.
+- The Sprint 2 import boundary accepts the supplied cfo.ai export field names,
+  validates required assumptions and calculated outputs, and stores the full
+  operator-supplied payload plus model/scenario reference alongside the local
+  assessment. A database reload test verifies persistence. This code-level
+  acceptance is not a claim that the pasted export was imported at runtime or
+  that the MCP connection was authenticated; status remains degraded/unverified.
 - Owner S: connect `https://api.cfo.ai/mcp`, authenticate in the browser, verify
   the intended workspace, create/read the regional model and three scenarios,
   and capture actual output references. Use the local model's explicit monthly
