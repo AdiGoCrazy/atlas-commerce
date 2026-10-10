@@ -72,11 +72,13 @@ def run_region_cycle(
     try:
         with trace_step("WORKFLOW", "regional_update_cycle", region_id=region_id,
                         cycle_id=stable_cycle_id) as span:
+            trace_id = f"{span.get_span_context().trace_id:032x}"
             result = _run_cycle_transaction(
                 path, region_id, at, stable_cycle_id,
                 replay_signal_ids=replay_signal_ids, replay_of=replay_of,
                 signal_source=signal_source,
                 evaluation_policy=evaluation_policy or EvaluationPolicy(),
+                neatlogs_trace_id=trace_id,
             )
             span.set_attribute("atlas.result_status", result.cycle.status.value)
             span.set_attribute("atlas.activation_status", "activated" if result.after_version_id != result.before_version_id else "unchanged")
@@ -86,7 +88,8 @@ def run_region_cycle(
             })
             return result
     except Exception as error:
-        _record_failure(path, region_id, stable_cycle_id, at, error)
+        _record_failure(path, region_id, stable_cycle_id, at, error,
+                        neatlogs_trace_id=locals().get("trace_id"))
         logger.exception("regional_cycle_failed", extra={
             "region_id": region_id, "cycle_id": stable_cycle_id,
             "result_status": "failed",
@@ -104,6 +107,7 @@ def _run_cycle_transaction(
     replay_of: str | None,
     signal_source: SignalSource | None,
     evaluation_policy: EvaluationPolicy,
+    neatlogs_trace_id: str | None,
 ) -> CycleResult:
     with connect(path) as conn:
         repository = Repository(conn)
@@ -168,6 +172,7 @@ def _run_cycle_transaction(
                 "after_version_id": active.active_version_id,
                 "replay_of": replay_of,
                 "simulated": True,
+                "neatlogs_trace_id": neatlogs_trace_id,
             }
             final = cycle.model_copy(update={
                 "status": UpdateCycleStatus.rejected,
@@ -225,6 +230,7 @@ def _run_cycle_transaction(
         metrics["simulated"] = True
         metrics["cohort"] = "fixed regional demand cohort, same for active and candidate"
         metrics["rejections"] = [item.model_dump(mode="json") for item in proposal.rejections]
+        metrics["neatlogs_trace_id"] = neatlogs_trace_id
         old_ranks = {item.product_id: item.rank for item in before}
         new_ranks = {item.product_id: item.rank for item in after}
         promoted = [item.product_id for item in after
@@ -324,7 +330,8 @@ def _evaluate_same_cohort(
 
 
 def _record_failure(path: Path, region_id: str, cycle_id: str,
-                    now: datetime, error: Exception) -> None:
+                    now: datetime, error: Exception,
+                    *, neatlogs_trace_id: str | None = None) -> None:
     """Persist failure state separately after the work transaction rolls back."""
     with connect(path) as conn:
         repository = Repository(conn)
@@ -336,7 +343,8 @@ def _record_failure(path: Path, region_id: str, cycle_id: str,
                 region_id=region_id,
                 status=UpdateCycleStatus.failed,
                 rejection_reason=type(error).__name__,
-                evaluation={"error": str(error)[:500], "active_version_preserved": True},
+                evaluation={"error": str(error)[:500], "active_version_preserved": True,
+                            "neatlogs_trace_id": neatlogs_trace_id},
                 created_at=now,
                 finished_at=datetime.now(timezone.utc),
             ))

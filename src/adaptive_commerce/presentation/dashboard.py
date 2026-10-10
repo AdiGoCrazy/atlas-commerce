@@ -13,6 +13,7 @@ from adaptive_commerce.application.dashboard import (
     list_region_actions, list_region_cycles, list_regions, persist_cfo_import,
     preview_products, submit_candidate,
 )
+from adaptive_commerce.application.assistant import ask_assistant, assistant_status
 from adaptive_commerce.application.lifecycle import (
     approve_region, archive_region, pause_region, reject_region, resume_region,
     rollback_region,
@@ -77,7 +78,7 @@ def render_dashboard() -> None:
 
     section = st.radio(
         "Dashboard section",
-        ["Overview", "Region operations", "Recommendations", "Activity & evidence", "Settings"],
+        ["Overview", "Region operations", "Recommendations", "Activity & evidence", "Atlas Assistant", "Settings"],
         horizontal=True,
         label_visibility="collapsed",
         key="dashboard_section",
@@ -93,6 +94,8 @@ def render_dashboard() -> None:
         _render_recommendations(path, selected_region)
     elif section == "Activity & evidence":
         _render_activity(path, selected_region)
+    elif section == "Atlas Assistant":
+        _render_assistant(path)
     elif section == "Settings":
         _render_settings(path)
 
@@ -390,6 +393,45 @@ def _render_settings(path: Path) -> None:
             st.rerun()
         except sqlite3.Error:
             st.error("Demo state could not be reset.")
+
+
+def _render_assistant(path: Path) -> None:
+    """Render grounded questions, evidence references, and correction alerts."""
+    st.subheader("Atlas Assistant")
+    status = assistant_status()
+    st.caption(f"{status['provider']} · {status['model']} · {status['status'].title()} — {status['detail']}")
+    st.info(
+        f"Questions use the configured {status['provider']} model. Relevant Atlas records, including synthetic "
+        "signal excerpts, may be sent to that provider. Finance and recommendation outcomes remain "
+        "grounded in Atlas records and the deterministic engine. The assistant cannot activate a region "
+        "or recommendation version; a requested signal correction is separately audited."
+    )
+    history: list[dict[str, str]] = st.session_state.setdefault("assistant_history", [])
+    for item in history:
+        with st.chat_message(item["role"]):
+            st.markdown(item["content"])
+            for citation in item.get("evidence", []):
+                st.caption(f"{citation['kind']} · {citation['label']} · `{citation['record_id']}`")
+            if item.get("trace_id"):
+                st.caption(f"Neatlogs trace · `{item['trace_id']}`")
+            if item.get("repaired_signal_id"):
+                st.success(f"Signal correction saved as `{item['repaired_signal_id']}`; the original signal is unchanged.")
+            for notice in item.get("notices", []):
+                st.warning(notice)
+    with st.form("atlas_assistant_form", clear_on_submit=True):
+        question = st.text_area("Ask about your regions, recommendations, finance, or a cycle",
+                                placeholder="Why did Trail Boots move down in the last cycle?", height=90)
+        submitted = st.form_submit_button("Ask Atlas", type="primary")
+    if submitted:
+        history.append({"role": "user", "content": question})
+        result = ask_assistant(path, question,
+            history=[{"role": item["role"], "content": item["content"]} for item in history[:-1]])
+        history.append({"role": "assistant", "content": result.answer,
+                        "evidence": [item.model_dump(mode="json") for item in result.evidence],
+                        "trace_id": result.trace_id, "notices": result.notices,
+                        "repaired_signal_id": result.repaired_signal_id})
+        st.session_state["assistant_history"] = history[-20:]
+        st.rerun()
 
 
 def _run_operator_action(action, success_message: str) -> None:

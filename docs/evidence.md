@@ -199,3 +199,48 @@ claim that the application itself has a live cfo.ai MCP client.
 - After this calibration coverage was added, Python 3.12.14:
   `/private/tmp/atlas-commerce-venv/bin/python -m pytest -q` — **152 passed**;
   compileall and `git diff --check` passed.
+
+## Agentic assistant and provider integration — October 11, 2026
+
+- Added an OpenAI-compatible provider adapter using the official Python SDK.
+  OpenRouter is the default with a free model; the same
+  assistant can use the official OpenAI endpoint by setting `LLM_PROVIDER=openai`,
+  `OPENAI_API_KEY`, and `LLM_MODEL`. Provider status does not claim that a live
+  model call succeeded.
+- Added bounded allowlisted portfolio/region reads, deterministic recommendation
+  previews, and sanitized cycle trace inspection. Chat cannot approve regions or
+  activate recommendation versions. Preview tests confirm confidence `0.65`
+  fails Atlas's confidence gate, `0.70` creates a non-persistent candidate, and
+  the active version remains unchanged.
+- The assistant tool sequence requires a verified trace inspection before it
+  will expose the signal correction operation; the correction service verifies
+  the exact trace again before saving.
+- Explicit signal correction requires the signal to belong to the selected
+  cycle and verified readback of that exact Neatlogs trace. It appends a signal
+  and audit row while preserving the original; unavailable readback prevents
+  writes. Dashboard messages surface correction outcomes and evidence refs.
+- Neatlogs masking removes model message content from export. Trace readback
+  retains span names, kind, status, and error class while excluding prompt and
+  evidence text. Tests use fake clients/readers and empty provider credentials;
+  no paid or live model request was made.
+- Python 3.12: `UV_CACHE_DIR=/private/tmp/atlas-uv-cache uv run pytest -q` —
+  **160 passed**; `uv lock --check`, compileall, and `git diff --check` passed.
+- At implementation time, this environment had no OpenRouter/OpenAI credentials,
+  no cfo.ai MCP server
+  or authenticated workspace, and no Neatlogs trace-readback credentials. The
+  assistant live call, exact trace CLI round trip, and cfo.ai live model/scenario
+  read remain unverified. cfo.ai remains the intended finance system, but the
+  current runtime still displays its explicit local simulated fallback until
+  authenticated MCP access is available. Entire search failed without login
+  and `entire-graph` is unavailable; no new checkpoint is claimed.
+
+## OpenRouter model correction — October 11, 2026
+
+- User's live request returned HTTP 404 saying `inclusionai/ling-3.0-flash-fin:free`
+  was unavailable and only its paid model slug was available. This was model
+  availability, not a missing OpenAI key.
+- A test with `google/gemma-4-31b-it:free` reached Google AI Studio, confirming
+  OpenRouter authentication, but the shared free upstream returned HTTP 429.
+  The repository default and local `.env` now use `openrouter/free`, which routes
+  requests to an eligible free model and filters for features such as tool
+  calling. This router has not yet been live-verified.

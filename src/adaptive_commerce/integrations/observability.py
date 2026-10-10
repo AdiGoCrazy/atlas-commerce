@@ -16,6 +16,17 @@ logger = logging.getLogger(__name__)
 F = TypeVar("F", bound=Callable[..., Any])
 
 
+def _redact_model_content(span_data: dict[str, Any]) -> dict[str, Any]:
+    """Remove prompt, response, and user evidence text before Neatlogs export."""
+    attributes = span_data.get("attributes")
+    if isinstance(attributes, dict):
+        for name in list(attributes):
+            normalized = str(name).lower()
+            if ".content" in normalized or "input_messages" in normalized or "output_messages" in normalized:
+                attributes[name] = "[REDACTED]"
+    return span_data
+
+
 class TraceStatus(BaseModel):
     """Runtime configuration status, separate from live trace readback evidence."""
 
@@ -33,6 +44,7 @@ def initialize_tracing() -> TraceStatus:
         neatlogs.init(
             api_key=key, workflow_name="atlas-commerce",
             disable_export=not bool(key), capture_logs=False,
+            mask=_redact_model_content,
         )
     except Exception:
         logger.error("neatlogs_initialization_failed")

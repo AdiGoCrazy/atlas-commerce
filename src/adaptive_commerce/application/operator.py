@@ -66,7 +66,7 @@ def reset_demo(path: Path) -> None:
     with connect(path) as conn:
         conn.execute("PRAGMA defer_foreign_keys = ON")
         for table in (
-            "evidence_references", "recommendation_items", "consumed_signals", "signals", "source_records",
+            "signal_corrections", "evidence_references", "recommendation_items", "consumed_signals", "signals", "source_records",
             "event_windows", "finance_assessments", "operator_actions", "update_cycles",
             "simulated_events", "region_profiles", "recommendation_versions", "regions",
             "products",

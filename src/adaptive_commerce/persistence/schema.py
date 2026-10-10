@@ -146,6 +146,21 @@ CREATE TABLE IF NOT EXISTS operator_actions (
     created_at TEXT NOT NULL
 );
 
+-- Immutable, trace-linked correction lineage for agent-repaired signals.
+CREATE TABLE IF NOT EXISTS signal_corrections (
+    id TEXT PRIMARY KEY,
+    region_id TEXT NOT NULL REFERENCES regions(id) ON DELETE CASCADE,
+    source_signal_id TEXT NOT NULL REFERENCES signals(id),
+    corrected_signal_id TEXT NOT NULL UNIQUE REFERENCES signals(id),
+    cycle_id TEXT NOT NULL REFERENCES update_cycles(id),
+    trace_id TEXT NOT NULL,
+    before_json TEXT NOT NULL,
+    after_json TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE(source_signal_id, cycle_id, after_json)
+);
+
 -- Indexes for common query patterns
 CREATE INDEX IF NOT EXISTS idx_signals_region ON signals(region_id);
 CREATE INDEX IF NOT EXISTS idx_signals_source ON signals(source_id);
@@ -155,4 +170,5 @@ CREATE INDEX IF NOT EXISTS idx_versions_region ON recommendation_versions(region
 CREATE INDEX IF NOT EXISTS idx_cycles_region ON update_cycles(region_id);
 CREATE INDEX IF NOT EXISTS idx_actions_region ON operator_actions(region_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_consumed_cycle ON consumed_signals(cycle_id);
+CREATE INDEX IF NOT EXISTS idx_correction_region ON signal_corrections(region_id, created_at);
 """

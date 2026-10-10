@@ -63,6 +63,25 @@ Capture:
 
 The neatlogs Python SDK supports custom spans for workflows, agents, tools, guardrails, and retrieval steps. Its public API can read traces and automate workflows when the project has suitable credentials and access. Verify the authenticated connection before building logic that depends on API reads. [Python SDK](https://docs.neatlogs.com/sdk/python) · [Public API](https://docs.neatlogs.com/api-reference)
 
+### Assistant behavior
+
+The Atlas Assistant uses an OpenAI-compatible provider adapter. OpenRouter is
+the default (`openrouter/free`), which routes to an eligible free model; set `LLM_PROVIDER=openai`,
+`OPENAI_API_KEY`, and `LLM_MODEL` to switch to the official OpenAI endpoint.
+Tool calls are allowlisted and bounded. Read tools expose Atlas snapshots,
+sanitized trace summaries, and deterministic recommendation previews. Region
+activation and version changes remain outside chat. On an explicit correction
+request, the assistant can append a corrected signal only after exact trace
+readback; the original signal and a correction audit row remain durable. The
+dashboard discloses that queried Atlas records may be sent to the configured
+model provider. Prompt and model response content are masked from Neatlogs
+export, while span metadata, error types, and status remain available.
+
+Trace readback requires `NEATLOGS_PROJECT_ID` and `NEATLOGS_TOKEN` in addition
+to export configuration. If these are absent or the exact trace cannot be
+retrieved, trace inspection and correction report a degraded/failed status and
+correction writes are refused.
+
 ## Entire
 
 ### Role
@@ -105,6 +124,14 @@ Create a cfo.ai model with:
 - product or campaign ROI.
 
 The application should submit or read a regional scenario through the cfo.ai MCP connection where access is available. It must store references to the model and scenario, display the returned outputs, and convert approved thresholds into a local `FinancePolicy` used by the activation and ranking services.
+
+The current runtime has no authenticated cfo.ai MCP client. Finance remains
+behind the cfo adapter boundary and uses a clearly labeled local simulation
+until an authenticated model/scenario read is implemented and verified. An
+operator-supplied export is validated and retained as unverified provenance; it
+does not silently become the finance engine result. The natural-language
+assistant reports that provenance and does not treat imported numbers as live
+cfo.ai outputs.
 
 If MCP authentication or an operation is unavailable, the UI must state `cfo.ai unavailable` and show that the assessment is a local fallback. The demo may continue, but the cfo.ai integration is not considered complete until a real model/scenario read is verified.
 

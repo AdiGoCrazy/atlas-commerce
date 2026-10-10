@@ -93,6 +93,28 @@ JSON export matching `CfoScenarioImport` to inspect provider outputs/provenance;
 imported data is explicitly unverified and does not replace the local decision.
 No live cfo.ai success is claimed. The UI shows all financial assumptions.
 
+### Atlas Assistant and model providers
+
+Copy `.env.example` to `.env` and set `OPENROUTER_API_KEY`. The default model is
+`openrouter/free`, which selects a free model that supports the requested
+features such as tool calling; set `LLM_MODEL` to a specific OpenRouter
+model ID to change it. To use the official OpenAI endpoint instead, set
+`LLM_PROVIDER=openai`, provide `OPENAI_API_KEY`, and set `LLM_MODEL` to the
+account's model. Both use the official OpenAI-compatible Python SDK and
+Neatlogs instrumentation. The assistant can inspect Atlas data, preview
+recommendation changes through the deterministic ranker and evaluation gate,
+and inspect sanitized cycle trace metadata. It cannot activate regions or
+recommendation versions. A specifically requested signal correction requires
+exact cycle trace readback and creates a new audited signal while retaining the
+original.
+
+For trace-guided signal correction, also configure `NEATLOGS_PROJECT_ID` and
+`NEATLOGS_TOKEN` for trace readback. A correction is stored as a new signal with
+an audit record; the original remains intact. Neatlogs masking redacts prompts
+and model response content before export. The dashboard discloses that relevant
+Atlas records may be sent to OpenRouter. Free model endpoints can be rate limited.
+See [docs/evidence.md](docs/evidence.md) for live verification state.
+
 See [`docs/evidence.md`](docs/evidence.md) for actual checks and integration
 blockers and [`SPRINT_PLAN.md`](SPRINT_PLAN.md) for the recovery ownership
 exception, task branches, and merge gates. Product details remain in
