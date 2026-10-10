@@ -55,6 +55,39 @@ def test_cfo_export_round_trip_preserves_provenance(tmp_path):
     assert read_cfo_export(path) == payload
 
 
+def test_cfo_export_accepts_export_field_names_and_rejects_malformed_finance():
+    payload = {
+        "workspace_id": None, "region_id": "harbor", "model_id": "model-123",
+        "scenario_id": "default_layer", "source_url": "runway:scenario",
+        "assumptions": {
+            "monthly_traffic": 50000, "conversion_rate": 0.025,
+            "avg_order_value": 85, "product_cost_per_order": 42.77,
+            "fulfillment_cost_per_order": 12, "campaign_cost_monthly": 15000,
+            "inference_cost_monthly": 3000, "infrastructure_cost_monthly": 500,
+            "cash_balance": 30000, "opportunity_cost_monthly": None,
+        },
+        "result": {
+            "scenario_name": "Base", "orders": 1250, "revenue": 106250,
+            "product_cost": 53468, "fulfillment_cost": 15000,
+            "gross_profit": 37781, "gross_margin": 0.35, "operating_cost": 18500,
+            "profit": 19281, "campaign_roi": 1.5, "runway_months": None,
+            "opportunity_adjusted_profit": None,
+        },
+    }
+    imported = CfoScenarioImport.validate_payload(payload)
+    assert imported.workspace_id is None
+    assert imported.assumptions["avg_order_value"] == 85
+    assert imported.model_dump(mode="json")["scenario_id"] == "default_layer"
+
+    malformed = {**payload, "result": {**payload["result"], "revenue": "NaN"}}
+    with pytest.raises(ValidationError, match="finite"):
+        CfoScenarioImport.validate_payload(malformed)
+
+    missing_output = {**payload, "result": {"scenario_name": "Base", "revenue": 1}}
+    with pytest.raises(ValidationError, match="missing required outputs"):
+        CfoScenarioImport.validate_payload(missing_output)
+
+
 def test_neatlogs_initializes_once_without_export_when_key_missing(monkeypatch):
     monkeypatch.delenv("NEATLOGS_API_KEY", raising=False)
     calls = []

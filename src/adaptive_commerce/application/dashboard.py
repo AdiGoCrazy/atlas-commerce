@@ -11,7 +11,8 @@ import neatlogs
 from pydantic import BaseModel, ConfigDict, Field
 
 from adaptive_commerce.domain import Product, Region, RegionProfile, RegionState
-from adaptive_commerce.integrations.finance import FinanceInputs, FinanceReport, assess_finance
+from adaptive_commerce.integrations.finance import CfoScenarioImport, FinanceInputs, FinanceReport, assess_finance
+from adaptive_commerce.integrations.observability import trace_step
 from adaptive_commerce.persistence import connect, initialize, load_fixtures
 from adaptive_commerce.recommender import RankingProduct, RankingProfile, RankedProduct, rank_products
 
@@ -59,7 +60,8 @@ def submit_candidate(path: Path, request: CandidateRequest) -> CandidateResult:
     now = datetime.now(timezone.utc)
     region = Region(id=str(uuid4()), name=request.name, state=RegionState.candidate,
                     locale="en_US", created_at=now)
-    report = assess_finance(request.assumptions)
+    with trace_step("CHAIN", "finance_assessment", region_id=region.id):
+        report = assess_finance(request.assumptions)
     with closing(connect(path)) as conn, conn:
         conn.execute(
             "INSERT INTO regions (id, name, state, locale, created_at) VALUES (?, ?, ?, ?, ?)",
@@ -87,9 +89,30 @@ def candidate_report(path: Path, region_id: str) -> FinanceReport | None:
     if row is None:
         return None
     payload = json.loads(row["assumptions"])
+    payload = payload.get("local_report", payload)
     if payload.get("source") == "local_simulation":
         return FinanceReport.model_validate(payload)
     return None
+
+
+def persist_cfo_import(path: Path, imported: CfoScenarioImport) -> bool:
+    """Attach validated provider provenance to the region's latest assessment."""
+    with closing(connect(path)) as conn, conn:
+        row = conn.execute(
+            "SELECT id, assumptions FROM finance_assessments WHERE region_id = ? ORDER BY created_at DESC LIMIT 1",
+            (imported.region_id,),
+        ).fetchone()
+        if row is None:
+            return False
+        current = json.loads(row["assumptions"])
+        local_report = current.get("local_report", current)
+        stored = {"local_report": local_report, "cfo_ai_import": imported.model_dump(mode="json")}
+        reference = f"{imported.model_id}/{imported.scenario_id}"
+        conn.execute(
+            "UPDATE finance_assessments SET assumptions = ?, cfo_reference = ? WHERE id = ?",
+            (json.dumps(stored, allow_nan=False), reference, row["id"]),
+        )
+    return True
 
 
 @neatlogs.span(kind="WORKFLOW", name="storefront_preview")
@@ -107,4 +130,8 @@ def preview_products(path: Path, region_id: str) -> list[RankedProduct]:
             payload = dict(row)
             payload["tags"] = json.loads(payload["tags"])
             products.append(RankingProduct.model_validate(Product.model_validate(payload)))
-    return rank_products(products, profile, now=datetime.now(timezone.utc))
+    with trace_step(
+        "CHAIN", "recommendation_ranking", region_id=profile.region_id,
+        version_id=profile.active_version_id,
+    ):
+        return rank_products(products, profile, now=datetime.now(timezone.utc))

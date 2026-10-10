@@ -2,6 +2,7 @@
 
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from contextlib import contextmanager
 
 import pytest
 from pydantic import ValidationError
@@ -14,6 +15,7 @@ from adaptive_commerce.agents import (
 )
 from adaptive_commerce.application import RejectionReason, UpdatePolicy, propose_profile_update
 from adaptive_commerce.domain import RegionProfile
+from adaptive_commerce.integrations import observability
 from adaptive_commerce.recommender import (
     RankingEvent,
     RankingProduct,
@@ -22,6 +24,38 @@ from adaptive_commerce.recommender import (
 )
 
 NOW = datetime(2026, 10, 10, 12, tzinfo=timezone.utc)
+
+
+def test_signal_and_proposal_spans_include_region_cycle_and_candidate_version(monkeypatch):
+    spans = []
+
+    class Span:
+        def __init__(self, attributes):
+            self.attributes = attributes
+
+        def set_attribute(self, name, value):
+            self.attributes[name] = value
+
+    @contextmanager
+    def fake_trace(name, *, kind):
+        attributes = {"name": name, "kind": kind}
+        spans.append(attributes)
+        yield Span(attributes)
+
+    monkeypatch.setattr(observability.neatlogs, "trace", fake_trace)
+    normalized = normalize_fixture_record(source_record())
+    propose_profile_update(
+        profile(), [normalized], now=NOW, candidate_version_id="v2", cycle_id="cycle-1",
+    )
+
+    assert spans == [
+        {"name": "signal_extraction", "kind": "AGENT", "atlas.region_id": "cedar"},
+        {
+            "name": "update_proposal", "kind": "CHAIN",
+            "atlas.region_id": "cedar", "atlas.cycle_id": "cycle-1",
+            "atlas.version_id": "v2",
+        },
+    ]
 
 
 def source_record(**overrides) -> FixtureSourceRecord:

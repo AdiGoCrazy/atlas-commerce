@@ -6,10 +6,10 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Annotated, Any, Mapping, Sequence
 
-import neatlogs
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
 from adaptive_commerce.domain import EventWindow, Signal, SignalSourceType
+from adaptive_commerce.integrations.observability import traced_step
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +89,10 @@ def _normalize_text(value: str) -> str:
     return " ".join(value.split())
 
 
-@neatlogs.span(kind="AGENT", name="normalize_fixture_signal")
+@traced_step(
+    "AGENT", "signal_extraction",
+    lambda args: {"region_id": args["record"].region_id},
+)
 def normalize_fixture_record(record: FixtureSourceRecord) -> NormalizedSignal:
     """Convert one validated fixture source record into a shared ``Signal``.
 

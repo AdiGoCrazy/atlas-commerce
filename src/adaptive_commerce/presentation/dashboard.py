@@ -8,7 +8,7 @@ import streamlit as st
 from pydantic import ValidationError
 
 from adaptive_commerce.application.dashboard import (
-    CandidateRequest, bootstrap_database, candidate_report, list_regions,
+    CandidateRequest, bootstrap_database, candidate_report, list_regions, persist_cfo_import,
     preview_products, submit_candidate,
 )
 from adaptive_commerce.integrations.finance import FinanceInputs, read_cfo_export
@@ -62,6 +62,10 @@ def render_dashboard() -> None:
         try:
             imported = read_cfo_export(Path(export_path))
             if imported.region_id == selected:
+                if persist_cfo_import(path, imported):
+                    st.success("Validated cfo.ai assumptions and references saved with this finance assessment.")
+                else:
+                    st.warning("cfo.ai import is valid but no finance assessment exists for this region; provenance was not saved.")
                 st.warning("Operator-imported cfo.ai output; live connection and provenance are unverified.")
                 st.json(imported.model_dump(mode="json"))
         except (OSError, ValidationError):
