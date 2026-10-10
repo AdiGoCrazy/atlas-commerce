@@ -73,6 +73,12 @@ cycle history, replay, and region-isolated retries. The Streamlit dashboard
 provides the operator controls and before/after storefront views. A local polling
 worker is available for scheduled runs.
 
+The dashboard opens to a composer-first Atlas Assistant. A labeled sidebar links
+to Overview, Region operations, Recommendations, Activity & evidence, and
+Settings, and can collapse to an icon rail. The visual system follows Streamlit's
+active light or dark theme, uses restrained transitions, and honors reduced-motion
+preferences.
+
 Run the shell with `uv run streamlit run app.py`. Run one worker pass with
 `uv run python worker.py --once`, or start local polling with
 `uv run python worker.py --interval 300`. Set `ATLAS_DB_PATH` to use a different

@@ -26,30 +26,10 @@ from adaptive_commerce.integrations.observability import initialize_tracing
 
 
 def render_dashboard() -> None:
-    """Render summary, region controls, recommendations, and audit evidence."""
+    """Render the chat-first Atlas workspace and its operator sections."""
     st.set_page_config(page_title="Atlas Commerce", page_icon="◈", layout="wide")
-    st.markdown("""
-    <style>
-      .block-container {padding-top: 1.8rem; padding-bottom: 2.5rem; max-width: 1440px;}
-      [data-testid="stMetric"] {
-        background:var(--secondary-background-color);
-        color:var(--text-color);
-        border:1px solid rgba(128, 128, 128, .24);
-        padding:14px 16px;
-        border-radius:12px;
-      }
-      [data-testid="stMetricLabel"], [data-testid="stMetricLabel"] p,
-      [data-testid="stMetricValue"], [data-testid="stMetricDelta"] {
-        color:var(--text-color) !important;
-      }
-      [data-testid="stMetricLabel"] p {font-size:.82rem;opacity:.76;}
-      h1 {letter-spacing:-.035em;} .atlas-muted {color:#667085;font-size:.9rem;}
-      .atlas-badge {display:inline-block;padding:.2rem .55rem;border-radius:999px;background:#eef4ff;color:#214c9a;font-size:.78rem;}
-    </style>
-    """, unsafe_allow_html=True)
+    _inject_dashboard_styles()
     path = Path(os.environ.get("ATLAS_DB_PATH", "data/atlas_commerce.db"))
-    st.title("Atlas Commerce")
-    st.caption("Regional commerce intelligence · Operator workspace")
     flash = st.session_state.pop("flash_message", None)
     if flash:
         level = st.session_state.pop("flash_level", "success")
@@ -60,8 +40,6 @@ def render_dashboard() -> None:
         st.error("The workspace database could not be initialized. Check its path and fixture data.")
         return
     tracing = initialize_tracing()
-    st.caption(f"Observability · neatlogs {tracing.status.title()} — {tracing.detail}")
-    _integration_status(tracing.status, tracing.detail)
     regions = list_regions(path)
     if not regions:
         st.info("No regions found. Restore the demo data from Settings.")
@@ -76,39 +54,191 @@ def render_dashboard() -> None:
             active_regions[0].id if active_regions else regions[0].id,
         )
 
-    section = st.radio(
-        "Dashboard section",
-        ["Overview", "Region operations", "Recommendations", "Activity & evidence", "Atlas Assistant", "Settings"],
-        horizontal=True,
-        label_visibility="collapsed",
-        key="dashboard_section",
-    )
-    if section == "Overview":
-        _render_overview(path, regions)
-    elif section == "Region operations":
-        _render_region_operations(path, regions, labels, default_region)
+    _render_sidebar()
+    section = st.session_state.get("dashboard_section", "Ask Atlas")
     selected_region = st.session_state.get("selected_region", default_region)
     if selected_region not in labels:
         selected_region = default_region
-    elif section == "Recommendations":
-        _render_recommendations(path, selected_region)
-    elif section == "Activity & evidence":
-        _render_activity(path, selected_region)
-    elif section == "Atlas Assistant":
-        _render_assistant(path)
-    elif section == "Settings":
-        _render_settings(path)
+    with st.container(key="atlas_page_content"):
+        left, right = st.columns([0.82, 0.18], vertical_alignment="center")
+        left.markdown(
+            '<div class="atlas-workspace-label">ATLAS COMMERCE <span>/ OPERATOR WORKSPACE</span></div>',
+            unsafe_allow_html=True,
+        )
+        with right:
+            _render_status_menu(tracing.status, tracing.detail)
+        if section == "Ask Atlas":
+            _render_assistant(path, selected_region)
+        elif section == "Overview":
+            _render_overview(path, regions)
+        elif section == "Region operations":
+            _render_region_operations(path, regions, labels, default_region)
+        elif section == "Recommendations":
+            _render_recommendations(path, selected_region)
+        elif section == "Activity & evidence":
+            _render_activity(path, selected_region)
+        elif section == "Settings":
+            _render_settings(path)
+
+
+def _inject_dashboard_styles() -> None:
+    """Apply the neutral, system-aware Atlas presentation layer."""
+    st.markdown("""
+    <style>
+      :root {
+        --atlas-radius: 14px;
+        --atlas-border: color-mix(in srgb, var(--text-color) 12%, transparent);
+        --atlas-subtle: color-mix(in srgb, var(--text-color) 5%, transparent);
+      }
+      .block-container {max-width: 1360px; padding: 2.5rem 3rem 3rem;}
+      [data-testid="stSidebar"] {
+        border-right: 1px solid var(--atlas-border);
+        transition: width 220ms ease, min-width 220ms ease;
+      }
+      [data-testid="stSidebar"] [data-testid="stSidebarContent"] {padding: 1rem .75rem;}
+      [data-testid="stSidebar"] [data-testid="stVerticalBlock"] {gap: .35rem;}
+      [data-testid="stSidebar"]:not(:has(.atlas-sidebar-state[data-collapsed="true"])) {
+        width: 16rem !important; min-width: 16rem !important;
+      }
+      [data-testid="stSidebar"]:has(.atlas-sidebar-state[data-collapsed="true"]) {
+        width: 4.75rem !important; min-width: 4.75rem !important;
+      }
+      [data-testid="stSidebar"]:has(.atlas-sidebar-state[data-collapsed="true"]) [data-testid="stSidebarContent"] {
+        padding-left: .55rem; padding-right: .55rem;
+      }
+      .st-key-atlas_brand {padding: .25rem .35rem .4rem;}
+      .st-key-atlas_brand p {font-size: .86rem; font-weight: 700; letter-spacing: .08em; margin: 0;}
+      .st-key-atlas_sidebar_toggle {margin-bottom: .35rem;}
+      .st-key-atlas_nav_label {padding: .2rem .5rem .25rem;}
+      .st-key-atlas_nav_label p {font-size: .68rem; letter-spacing: .12em; opacity: .58;}
+      .st-key-atlas_navigation [data-testid="stVerticalBlock"] {gap: .2rem;}
+      [class*="st-key-nav_"] {border-radius: 10px;}
+      [class*="st-key-nav_"] button,
+      .st-key-atlas_sidebar_toggle button {width: 100%; justify-content: flex-start; border: 0; background: transparent; min-height: 2.6rem;}
+      [class*="st-key-nav_"] [data-testid="stBaseButton-secondary"] {background:var(--atlas-subtle) !important; color:var(--text-color) !important; box-shadow:inset 2px 0 var(--primary-color) !important;}
+      [class*="st-key-nav_"] button:hover,
+      .st-key-atlas_sidebar_toggle button:hover {background: var(--atlas-subtle);}
+      [data-testid="stSidebar"]:has(.atlas-sidebar-state[data-collapsed="true"]) .st-key-atlas_brand,
+      [data-testid="stSidebar"]:has(.atlas-sidebar-state[data-collapsed="true"]) .st-key-atlas_nav_label,
+      [data-testid="stSidebar"]:has(.atlas-sidebar-state[data-collapsed="true"]) [class*="st-key-nav_"] button [data-testid="stMarkdownContainer"],
+      [data-testid="stSidebar"]:has(.atlas-sidebar-state[data-collapsed="true"]) .st-key-atlas_sidebar_toggle button [data-testid="stMarkdownContainer"] {display:none !important;}
+      [data-testid="stSidebar"]:has(.atlas-sidebar-state[data-collapsed="true"]) [class*="st-key-nav_"] button,
+      [data-testid="stSidebar"]:has(.atlas-sidebar-state[data-collapsed="true"]) .st-key-atlas_sidebar_toggle button {
+        justify-content: center; padding: .7rem .45rem; min-height: 2.8rem;
+      }
+      .st-key-atlas_page_content {animation: atlas-enter 160ms ease-out both;}
+      [data-testid="stMetric"] {background: var(--secondary-background-color); border: 1px solid var(--atlas-border); padding: 1rem 1.1rem; border-radius: var(--atlas-radius);}
+      [data-testid="stMetricLabel"], [data-testid="stMetricLabel"] p,
+      [data-testid="stMetricValue"], [data-testid="stMetricDelta"] {color: var(--text-color) !important;}
+      [data-testid="stMetricLabel"] p {font-size: .8rem; opacity: .68;}
+      [data-testid="stExpander"] {border-color: var(--atlas-border); border-radius: 12px;}
+      [data-testid="stDataFrame"] {border: 1px solid var(--atlas-border); border-radius: 12px; overflow: hidden;}
+      [data-testid="stTextInput"] input, [data-testid="stTextArea"] textarea,
+      [data-testid="stNumberInput"] input, [data-testid="stSelectbox"] [data-baseweb="select"] > div {
+        border-radius: 10px;
+      }
+      .stButton button, [data-testid="stFormSubmitButton"] button {border-radius: 10px; transition: background-color 150ms ease, border-color 150ms ease, transform 150ms ease;}
+      .stButton button:active, [data-testid="stFormSubmitButton"] button:active {transform: translateY(1px);}
+      .st-key-atlas_chat_home {min-height: 65vh; display: flex; flex-direction: column; justify-content: center; padding-bottom: 4rem;}
+      .atlas-welcome {text-align:center; margin: 1rem auto 1.5rem; max-width: 720px;}
+      .atlas-welcome h1 {font-size: clamp(2rem, 4vw, 3rem); line-height:1.12; letter-spacing:-.045em; font-weight:600; margin:.2rem 0 .6rem;}
+      .atlas-welcome p {opacity:.66; font-size:1rem; margin:0;}
+      .st-key-atlas_chat_composer {max-width: 820px; margin: 0 auto; width:100%;}
+      .st-key-atlas_chat_composer [data-testid="stForm"] {padding:.6rem; border:1px solid var(--atlas-border); border-radius:22px; background:var(--secondary-background-color); box-shadow:0 10px 30px color-mix(in srgb, var(--text-color) 4%, transparent);}
+      .st-key-atlas_chat_composer textarea {border:0 !important; border-radius:16px !important; background:transparent !important; box-shadow:none !important; font-size:1rem; min-height:4.5rem;}
+      .st-key-atlas_chat_composer [data-testid="stFormSubmitButton"] {display:flex; justify-content:flex-end; padding-top:.3rem;}
+      .st-key-atlas_chat_composer [data-testid="stFormSubmitButton"] button {border-radius:12px; padding-inline:1.15rem;}
+      .st-key-atlas_chat_suggestions {max-width:820px; margin:1rem auto 0; width:100%;}
+      [class*="st-key-assistant_prompt_card_"] [data-testid="stVerticalBlockBorderWrapper"] {min-height:3.6rem; border-color:var(--atlas-border) !important; border-radius:14px !important; background:var(--secondary-background-color); transition:background-color 150ms ease, border-color 150ms ease, transform 150ms ease;}
+      [class*="st-key-assistant_prompt_card_"]:hover [data-testid="stVerticalBlockBorderWrapper"] {background:var(--atlas-subtle); border-color:color-mix(in srgb, var(--text-color) 24%, transparent) !important; transform:translateY(-1px);}
+      [class*="st-key-assistant_prompt_"] button {width:100%; min-height:2.5rem; padding:.4rem .55rem !important; border:0 !important; border-radius:9px !important; background:transparent !important; color:var(--text-color) !important; box-shadow:none !important; font-size:.84rem; justify-content:flex-start;}
+      .st-key-atlas_chat_history {max-width: 820px; margin: 0 auto 1.5rem;}
+      .st-key-atlas_chat_history [data-testid="stChatMessage"] {border:1px solid var(--atlas-border); border-radius:14px; padding:1rem 1.15rem; background:var(--secondary-background-color);}
+      .st-key-atlas_chat_history + .st-key-atlas_chat_composer {position:sticky; bottom:1rem; z-index:4;}
+      h1, h2, h3 {letter-spacing:-.035em;}
+      @keyframes atlas-enter {from {opacity:0;} to {opacity:1;}}
+      @media (max-width: 900px) {
+        .block-container {padding:2rem 1.25rem 2rem;}
+        [data-testid="stSidebar"]:not(:has(.atlas-sidebar-state[data-collapsed="true"])) {width:14rem !important; min-width:14rem !important;}
+        .st-key-atlas_chat_home {min-height:56vh; padding-bottom:1rem;}
+      }
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after {animation-duration:.01ms !important; animation-iteration-count:1 !important; scroll-behavior:auto !important; transition-duration:.01ms !important;}
+      }
+    </style>
+    """, unsafe_allow_html=True)
+
+
+def _render_sidebar() -> None:
+    """Render labeled navigation that can collapse into an icon rail."""
+    items = (
+        ("Ask Atlas", "chat_bubble_outline"),
+        ("Overview", "space_dashboard"),
+        ("Region operations", "public"),
+        ("Recommendations", "query_stats"),
+        ("Activity & evidence", "history"),
+        ("Settings", "settings"),
+    )
+    collapsed = bool(st.session_state.get("sidebar_collapsed", False))
+    st.session_state.setdefault("dashboard_section", "Ask Atlas")
+    with st.sidebar:
+        st.markdown(
+            f'<div class="atlas-sidebar-state" data-collapsed="{str(collapsed).lower()}"></div>',
+            unsafe_allow_html=True,
+        )
+        with st.container(key="atlas_brand"):
+            st.markdown("ATLAS COMMERCE")
+        st.button(
+            "Expand sidebar" if collapsed else "Collapse sidebar",
+            key="atlas_sidebar_toggle", icon=(":material/chevron_right:" if collapsed else ":material/chevron_left:"),
+            type="tertiary", width="stretch",
+            on_click=_toggle_sidebar,
+        )
+        with st.container(key="atlas_nav_label"):
+            st.caption("WORKSPACE")
+        with st.container(key="atlas_navigation"):
+            for label, icon in items:
+                active = st.session_state["dashboard_section"] == label
+                st.button(
+                    label, key=f"nav_{_navigation_key(label)}", icon=f":material/{icon}:",
+                    type="secondary" if active else "tertiary", width="stretch",
+                    on_click=_select_section, args=(label,),
+                )
+
+
+def _navigation_key(label: str) -> str:
+    """Return a stable widget key for a section label."""
+    return {
+        "Ask Atlas": "assistant", "Overview": "overview",
+        "Region operations": "region_operations", "Recommendations": "recommendations",
+        "Activity & evidence": "activity", "Settings": "settings",
+    }[label]
+
+
+def _select_section(label: str) -> None:
+    """Select a workspace page from the sidebar."""
+    st.session_state["dashboard_section"] = label
+
+
+def _toggle_sidebar() -> None:
+    """Toggle between labeled navigation and the compact icon rail."""
+    st.session_state["sidebar_collapsed"] = not bool(st.session_state.get("sidebar_collapsed", False))
+
+
+def _render_status_menu(neat_status: str, neat_detail: str) -> None:
+    """Keep partner status available without taking over the page header."""
+    with st.popover("System status", icon=":material/monitor_heart:", use_container_width=True):
+        _integration_status(neat_status, neat_detail)
 
 
 def _integration_status(neat_status: str, neat_detail: str) -> None:
-    with st.expander("Integration status", expanded=False):
-        left, middle, right = st.columns(3)
-        left.markdown("**neatlogs**")
-        left.caption(f"{neat_status.title()} · {neat_detail}")
-        middle.markdown("**cfo.ai**")
-        middle.caption("Degraded · Local financial simulation; live scenario read not verified in this session.")
-        right.markdown("**Entire**")
-        right.caption("Checkpoint evidence is documented; entire-graph is unavailable in this environment.")
+    left, middle, right = st.columns(3)
+    left.markdown("**neatlogs**")
+    left.caption(f"{neat_status.title()} · {neat_detail}")
+    middle.markdown("**cfo.ai**")
+    middle.caption("Degraded · Local financial simulation; live scenario read not verified in this session.")
+    right.markdown("**Entire**")
+    right.caption("Checkpoint evidence is documented; entire-graph is unavailable in this environment.")
 
 
 def _render_overview(path: Path, regions) -> None:
@@ -395,33 +525,73 @@ def _render_settings(path: Path) -> None:
             st.error("Demo state could not be reset.")
 
 
-def _render_assistant(path: Path) -> None:
-    """Render grounded questions, evidence references, and correction alerts."""
-    st.subheader("Atlas Assistant")
+def _render_assistant(path: Path, region_id: str) -> None:
+    """Render the composer-first assistant landing page and conversation."""
     status = assistant_status()
-    st.caption(f"{status['provider']} · {status['model']} · {status['status'].title()} — {status['detail']}")
-    st.info(
-        f"Questions use the configured {status['provider']} model. Relevant Atlas records, including synthetic "
-        "signal excerpts, may be sent to that provider. Finance and recommendation outcomes remain "
-        "grounded in Atlas records and the deterministic engine. The assistant cannot activate a region "
-        "or recommendation version; a requested signal correction is separately audited."
-    )
     history: list[dict[str, str]] = st.session_state.setdefault("assistant_history", [])
-    for item in history:
-        with st.chat_message(item["role"]):
-            st.markdown(item["content"])
-            for citation in item.get("evidence", []):
-                st.caption(f"{citation['kind']} · {citation['label']} · `{citation['record_id']}`")
-            if item.get("trace_id"):
-                st.caption(f"Neatlogs trace · `{item['trace_id']}`")
-            if item.get("repaired_signal_id"):
-                st.success(f"Signal correction saved as `{item['repaired_signal_id']}`; the original signal is unchanged.")
-            for notice in item.get("notices", []):
-                st.warning(notice)
-    with st.form("atlas_assistant_form", clear_on_submit=True):
-        question = st.text_area("Ask about your regions, recommendations, finance, or a cycle",
-                                placeholder="Why did Trail Boots move down in the last cycle?", height=90)
-        submitted = st.form_submit_button("Ask Atlas", type="primary")
+    with st.expander("Assistant details and data use", expanded=False):
+        st.caption(f"{status['provider']} · {status['model']} · {status['status'].title()} — {status['detail']}")
+        st.caption(
+            "Atlas uses its deterministic engine for recommendation outcomes. Chat cannot activate a region "
+            "or recommendation version. Relevant Atlas records, including synthetic signal excerpts, may be "
+            "sent to the configured model provider. Explicit signal corrections are separately audited."
+        )
+
+    if history:
+        with st.container(key="atlas_chat_history"):
+            for item in history:
+                with st.chat_message(item["role"]):
+                    st.markdown(item["content"])
+                    for citation in item.get("evidence", []):
+                        st.caption(f"{citation['kind']} · {citation['label']} · `{citation['record_id']}`")
+                    if item.get("trace_id"):
+                        st.caption(f"Neatlogs trace · `{item['trace_id']}`")
+                    if item.get("repaired_signal_id"):
+                        st.success(f"Signal correction saved as `{item['repaired_signal_id']}`; the original signal is unchanged.")
+                    for notice in item.get("notices", []):
+                        st.warning(notice)
+        _render_assistant_composer(path, history)
+        return
+
+    with st.container(key="atlas_chat_home"):
+        _, center, _ = st.columns([1, 4, 1])
+        with center:
+            st.markdown(
+                '<div class="atlas-welcome"><h1>Atlas Mind</h1>'
+                '<p>Ask about regions, recommendations, and recent decisions.</p></div>',
+                unsafe_allow_html=True,
+            )
+            _render_assistant_composer(path, history)
+            with st.container(key="atlas_chat_suggestions"):
+                prompts = (
+                    ("Portfolio summary", "portfolio", "Summarize the current portfolio and active regions."),
+                    ("Latest regional cycle", "cycle", f"Explain the latest cycle and top recommendations for region {region_id}."),
+                    ("Preview a signal", "preview", f"Preview festival at confidence 0.70 for region {region_id}; explain the gates and do not persist it."),
+                )
+                suggestion_cols = st.columns(3)
+                for column, (label, prompt_key, prompt) in zip(suggestion_cols, prompts):
+                    with column:
+                        with st.container(key=f"assistant_prompt_card_{prompt_key}", border=True):
+                            st.button(label, key=f"assistant_prompt_{prompt_key}",
+                                      type="tertiary", width="stretch",
+                                      on_click=_set_assistant_prompt, args=(prompt,))
+
+
+def _set_assistant_prompt(prompt: str) -> None:
+    """Fill the composer from a suggested question before Streamlit reruns."""
+    st.session_state["assistant_question"] = prompt
+
+
+def _render_assistant_composer(path: Path, history: list[dict[str, str]]) -> None:
+    """Render the shared assistant input and preserve the established service call."""
+    with st.container(key="atlas_chat_composer"):
+        with st.form("atlas_assistant_form", clear_on_submit=True):
+            question = st.text_area(
+                "Message Atlas", key="assistant_question",
+                placeholder="Ask about a region, a recommendation, or a cycle…", height=86,
+                label_visibility="collapsed",
+            )
+            submitted = st.form_submit_button("Send", type="primary", icon=":material/arrow_upward:")
     if submitted:
         history.append({"role": "user", "content": question})
         result = ask_assistant(path, question,

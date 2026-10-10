@@ -19,6 +19,19 @@ from adaptive_commerce.integrations.observability import initialize_tracing
 from adaptive_commerce.persistence import connect
 
 
+def _goto(app: AppTest, section: str) -> None:
+    """Navigate through the same sidebar control used by dashboard users."""
+    key_by_section = {
+        "Ask Atlas": "nav_assistant",
+        "Overview": "nav_overview",
+        "Region operations": "nav_region_operations",
+        "Recommendations": "nav_recommendations",
+        "Activity & evidence": "nav_activity",
+        "Settings": "nav_settings",
+    }
+    next(button for button in app.button if button.key == key_by_section[section]).click().run(timeout=15)
+
+
 @pytest.fixture(autouse=True)
 def tracing_lifecycle():
     """Finish the SDK before pytest closes its captured logging streams."""
@@ -95,15 +108,14 @@ def test_streamlit_shell_and_candidate_form(tmp_path, monkeypatch):
     monkeypatch.setenv("NEATLOGS_API_KEY", "")
     app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app.py"))
     app.run(timeout=15)
-    app.radio[0].set_value("Region operations").run(timeout=15)
+    _goto(app, "Region operations")
     assert not app.exception
     assert len(app.selectbox[0].options) == 3
     app.text_input[0].set_value("Demo Coast")
-    app.button[0].click().run(timeout=15)
+    next(button for button in app.button if button.label == "Assess candidate").click().run(timeout=15)
     assert not app.exception
     assert len(app.selectbox[0].options) == 4
     assert any("Candidate saved" in item.value for item in app.success)
-    assert any("Local financial simulation" in item.value for item in app.caption)
     assert len(app.dataframe) >= 1
     path = tmp_path / "ui.db"
     assert next(r for r in list_regions(path) if r.name == "Demo Coast").state == RegionState.candidate
@@ -115,8 +127,8 @@ def test_empty_candidate_name_does_not_write(tmp_path, monkeypatch):
     monkeypatch.setenv("NEATLOGS_API_KEY", "")
     app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app.py"))
     app.run(timeout=15)
-    app.radio[0].set_value("Region operations").run(timeout=15)
-    app.button[0].click().run(timeout=15)
+    _goto(app, "Region operations")
+    next(button for button in app.button if button.label == "Assess candidate").click().run(timeout=15)
     assert not app.exception
     assert app.error
     assert len(list_regions(path)) == 3
@@ -128,9 +140,9 @@ def test_operator_can_assess_and_approve_candidate_in_dashboard(tmp_path, monkey
     monkeypatch.setenv("NEATLOGS_API_KEY", "")
     app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app.py"))
     app.run(timeout=15)
-    app.radio[0].set_value("Region operations").run(timeout=15)
+    _goto(app, "Region operations")
     app.text_input[0].set_value("Approved Coast")
-    app.button[0].click().run(timeout=15)
+    next(button for button in app.button if button.label == "Assess candidate").click().run(timeout=15)
     assert not app.exception
     approve = next(button for button in app.button if button.key == "approve_region")
     approve.click().run(timeout=15)
@@ -146,15 +158,15 @@ def test_dashboard_cycle_persists_and_keeps_operator_section_selected(tmp_path, 
     monkeypatch.setenv("NEATLOGS_API_KEY", "")
     app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app.py"))
     app.run(timeout=15)
-    app.radio[0].set_value("Region operations").run(timeout=15)
-    assert app.radio[0].value == "Region operations"
+    _goto(app, "Region operations")
+    assert app.session_state["dashboard_section"] == "Region operations"
     assert app.selectbox[0].value == "cedar"
     assert count_pending_signals(path, "cedar") == 1
 
     next(button for button in app.button if button.key == "run_cycle").click().run(timeout=15)
 
     assert not app.exception
-    assert app.radio[0].value == "Region operations"
+    assert app.session_state["dashboard_section"] == "Region operations"
     assert any("Recommendations updated" in item.value for item in app.success)
     assert count_pending_signals(path, "cedar") == 0
     assert next(button for button in app.button if button.key == "run_cycle").disabled
@@ -163,3 +175,31 @@ def test_dashboard_cycle_persists_and_keeps_operator_section_selected(tmp_path, 
             "SELECT status FROM update_cycles WHERE region_id = 'cedar' ORDER BY created_at DESC LIMIT 1"
         ).fetchone()
     assert row["status"] == "activated"
+
+
+def test_chat_is_landing_page_and_sidebar_collapses(tmp_path, monkeypatch):
+    monkeypatch.setenv("ATLAS_DB_PATH", str(tmp_path / "chat-home.db"))
+    monkeypatch.setenv("NEATLOGS_API_KEY", "")
+    app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app.py"))
+    app.run(timeout=15)
+
+    assert not app.exception
+    assert app.session_state["dashboard_section"] == "Ask Atlas"
+    assert any("Atlas Mind" in element.value for element in app.markdown)
+    assert len([button for button in app.button if button.key.startswith("assistant_prompt_")]) == 3
+
+    next(button for button in app.button if button.key == "atlas_sidebar_toggle").click().run(timeout=15)
+
+    assert not app.exception
+    assert app.session_state["sidebar_collapsed"] is True
+    assert app.session_state["dashboard_section"] == "Ask Atlas"
+    for section in ("Overview", "Region operations", "Recommendations",
+                    "Activity & evidence", "Settings", "Ask Atlas"):
+        _goto(app, section)
+        assert not app.exception
+        assert app.session_state["dashboard_section"] == section
+        assert app.session_state["sidebar_collapsed"] is True
+
+    next(button for button in app.button if button.key == "assistant_prompt_preview").click().run(timeout=15)
+    assert not app.exception
+    assert "festival" in app.text_area[0].value.lower()
