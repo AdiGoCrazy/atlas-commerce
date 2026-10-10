@@ -39,4 +39,9 @@ def _json_loads(text: str | None) -> Any:
     """Deserialize JSON, returning empty structure for None/empty."""
     if not text:
         return {} if text == "{}" else []
-    return json.loads(text)
+    return json.loads(text, parse_constant=_parse_decimal_constant)
+
+
+def _parse_decimal_constant(s: str) -> Decimal:
+    """Parse JSON numeric constants as Decimal for exact precision."""
+    return Decimal(s)
