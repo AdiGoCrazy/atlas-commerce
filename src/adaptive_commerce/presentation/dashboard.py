@@ -13,7 +13,7 @@ from adaptive_commerce.application.dashboard import (
 )
 from adaptive_commerce.integrations.finance import FinanceInputs, read_cfo_export
 from adaptive_commerce.integrations.observability import initialize_tracing
-
+from adaptive_commerce.presentation.view_models import prepare_approval_state
 
 def render_dashboard() -> None:
     """Render seeded regions, candidate form, finance results, and product preview."""
@@ -180,10 +180,55 @@ def render_dashboard() -> None:
         "Recommendation comparison is awaiting "
         "the application comparison service."
     )
+    
     st.divider()
     st.subheader("Candidate Approval")
 
-    st.info(
-        "Approve and Reject actions will be available "
-        "once the lifecycle application service is connected."
+    selected_region = next(
+        (region for region in regions if region.id == selected),
+        None,
     )
+
+    approval_ui = (
+    prepare_approval_state(selected_region.state.value)
+    if selected_region is not None
+    else None
+    )
+    
+    
+    if approval_ui is None:
+        st.info("Please select a region.")
+
+    elif approval_ui["show_actions"]:
+        st.write(f"**Region:** {selected_region.name}")
+        st.write(f"**Current status:** {approval_ui['status']}")
+
+        st.warning(
+            "Financial recommendations are advisory only. "
+            "A region requires explicit human approval."
+        )
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.button(
+                "Approve Candidate",
+                disabled=not approval_ui["actions_enabled"],
+            )
+
+        with col2:
+            st.button(
+                "Reject Candidate",
+                disabled=not approval_ui["actions_enabled"],
+            )
+
+        st.caption(approval_ui["message"])
+
+    elif approval_ui["status"] == "Active":
+        st.success(f"{selected_region.name} is already active.")
+
+    elif approval_ui["status"] == "Rejected":
+        st.error(f"{selected_region.name} has been rejected.")
+
+    else:
+        st.info(approval_ui["message"])

@@ -106,3 +106,39 @@ def test_ranking_comparison_removed_product():
     assert rows[0]["Before rank"] == 1
     assert rows[0]["After rank"] is None
     assert rows[0]["Score change"] is None
+
+
+from adaptive_commerce.presentation.view_models import (
+    prepare_approval_state,
+)
+
+
+def test_candidate_approval_state():
+    result = prepare_approval_state("candidate")
+
+    assert result["status"] == "Candidate"
+    assert result["show_actions"] is True
+    assert result["actions_enabled"] is False
+
+
+def test_active_approval_state():
+    result = prepare_approval_state("active")
+
+    assert result["status"] == "Active"
+    assert result["show_actions"] is False
+    assert result["actions_enabled"] is False
+
+
+def test_rejected_approval_state():
+    result = prepare_approval_state("rejected")
+
+    assert result["status"] == "Rejected"
+    assert result["show_actions"] is False
+    assert result["actions_enabled"] is False
+
+
+def test_unknown_approval_state():
+    result = prepare_approval_state("paused")
+
+    assert result["show_actions"] is False
+    assert result["actions_enabled"] is False
