@@ -49,6 +49,7 @@ def test_no_finance_result():
 from decimal import Decimal
 
 from adaptive_commerce.presentation.view_models import (
+    prepare_cycle_comparison_rows,
     prepare_ranking_comparison,
 )
 from adaptive_commerce.recommender.contracts import (
@@ -106,3 +107,22 @@ def test_ranking_comparison_removed_product():
     assert rows[0]["Before rank"] == 1
     assert rows[0]["After rank"] is None
     assert rows[0]["Score change"] is None
+
+
+def test_cycle_comparison_new_region_uses_consistent_arrow_safe_rank_values():
+    rows = prepare_cycle_comparison_rows(
+        before=[],
+        after=[
+            {"product_id": "bottle", "rank": 1},
+            {"product_id": "boots", "rank": 2},
+        ],
+        catalog={},
+    )
+
+    by_product = {row["Product"]: row for row in rows}
+    assert by_product["bottle"]["Before"] == "—"
+    assert by_product["bottle"]["After"] == "1"
+    assert by_product["boots"]["Before"] == "—"
+    assert by_product["boots"]["After"] == "2"
+    assert all(row["Movement"] == "New" for row in rows)
+    assert all(isinstance(row[column], str) for row in rows for column in row)

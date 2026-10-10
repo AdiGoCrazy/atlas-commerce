@@ -34,6 +34,18 @@ CREATE TABLE IF NOT EXISTS products (
     base_popularity TEXT NOT NULL DEFAULT '0'
 );
 
+-- Auditable catalog changes; product references remain even after soft removal.
+CREATE TABLE IF NOT EXISTS catalog_actions (
+    id TEXT PRIMARY KEY,
+    product_id TEXT NOT NULL,
+    action TEXT NOT NULL,
+    before_json TEXT,
+    after_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_catalog_actions_product_created
+    ON catalog_actions(product_id, created_at DESC);
+
 -- Source records table (raw source data before normalization)
 CREATE TABLE IF NOT EXISTS source_records (
     id TEXT PRIMARY KEY,
@@ -159,6 +171,15 @@ CREATE TABLE IF NOT EXISTS signal_corrections (
     reason TEXT NOT NULL,
     created_at TEXT NOT NULL,
     UNIQUE(source_signal_id, cycle_id, after_json)
+);
+
+-- A pending signal may be withdrawn without erasing its operator audit record.
+CREATE TABLE IF NOT EXISTS signal_deletions (
+    id TEXT PRIMARY KEY,
+    region_id TEXT NOT NULL,
+    signal_id TEXT NOT NULL,
+    signal_json TEXT NOT NULL,
+    removed_at TEXT NOT NULL
 );
 
 -- Indexes for common query patterns

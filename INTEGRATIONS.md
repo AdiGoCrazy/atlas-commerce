@@ -69,13 +69,26 @@ The Atlas Assistant uses an OpenAI-compatible provider adapter. OpenRouter is
 the default (`openrouter/free`), which routes to an eligible free model; set `LLM_PROVIDER=openai`,
 `OPENAI_API_KEY`, and `LLM_MODEL` to switch to the official OpenAI endpoint.
 Tool calls are allowlisted and bounded. Read tools expose Atlas snapshots,
-sanitized trace summaries, and deterministic recommendation previews. Region
-activation and version changes remain outside chat. On an explicit correction
-request, the assistant can append a corrected signal only after exact trace
-readback; the original signal and a correction audit row remain durable. The
-dashboard discloses that queried Atlas records may be sent to the configured
-model provider. Prompt and model response content are masked from Neatlogs
-export, while span metadata, error types, and status remain available.
+the product catalog, sanitized trace summaries, and deterministic recommendation
+previews. Write tools are only included when the user's current message explicitly
+requests the matching action. The assistant can create and edit pending candidates
+and their simulated financial assumptions, soft-remove a candidate or region,
+perform explicitly requested lifecycle transitions, add synthetic signals,
+withdraw a signal only while it is pending and unreferenced by cycle history,
+run/replay regional cycles, and create/edit/soft-remove shared catalog products.
+Catalog changes and signal withdrawals retain durable before/after audit records.
+These actions call validated application services and produce Neatlogs spans. Candidate approval
+still requires an explicit approval request and the existing finance gate. Product
+removal disables stock and recommendation eligibility while preserving past
+recommendation references. Recommendation versions are only changed by the
+deterministic cycle or restored through rollback; the assistant cannot edit version
+rows directly. Signal corrections append a new audited signal only after exact
+Neatlogs trace readback; the original signal remains durable. The dashboard
+discloses that queried Atlas records may be sent to the configured model provider.
+Prompt and model response content are masked from Neatlogs export, while span
+metadata, error types, and status remain available. If a provider returns no final
+text, Atlas summarizes the verified application-tool output instead of presenting
+an empty answer.
 
 Trace readback requires `NEATLOGS_PROJECT_ID` and `NEATLOGS_TOKEN` in addition
 to export configuration. If these are absent or the exact trace cannot be

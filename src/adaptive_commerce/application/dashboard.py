@@ -27,6 +27,7 @@ class CandidateRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     name: str = Field(min_length=1, max_length=120)
+    locale: str = Field(default="en_US", min_length=2, max_length=20)
     assumptions: FinanceInputs
 
 
@@ -61,7 +62,7 @@ def submit_candidate(path: Path, request: CandidateRequest) -> CandidateResult:
     """Atomically save a candidate and fallback assessment; never activate it."""
     now = datetime.now(timezone.utc)
     region = Region(id=str(uuid4()), name=request.name, state=RegionState.candidate,
-                    locale="en_US", created_at=now)
+                    locale=request.locale, created_at=now)
     with trace_step("CHAIN", "finance_assessment", region_id=region.id):
         report = assess_finance(request.assumptions)
     with closing(connect(path)) as conn, conn:
@@ -78,6 +79,55 @@ def submit_candidate(path: Path, request: CandidateRequest) -> CandidateResult:
              report.model_dump_json(), None, now.isoformat()),
         )
     logger.info("candidate_registered", extra={"region_id": region.id, "result_status": "candidate"})
+    return CandidateResult(region=region, finance=report)
+
+
+@neatlogs.span(kind="WORKFLOW", name="update_candidate")
+def update_candidate(
+    path: Path,
+    region_id: str,
+    *,
+    name: str | None = None,
+    locale: str | None = None,
+    finance_updates: dict | None = None,
+) -> CandidateResult:
+    """Update a pending candidate and append a fresh validated finance assessment."""
+    from adaptive_commerce.domain import RegionState
+
+    if name is None and locale is None and not finance_updates:
+        raise ValueError("provide a candidate name, locale, or financial assumption to update")
+    now = datetime.now(timezone.utc)
+    current_report = candidate_report(path, region_id)
+    assumptions = current_report.assumptions.model_dump() if current_report else FinanceInputs().model_dump()
+    assumptions.update(finance_updates or {})
+    validated_assumptions = FinanceInputs.model_validate(assumptions)
+    with trace_step("CHAIN", "finance_assessment_update", region_id=region_id):
+        report = assess_finance(validated_assumptions)
+    with closing(connect(path)) as conn, conn:
+        region_row = conn.execute("SELECT * FROM regions WHERE id = ?", (region_id,)).fetchone()
+        if region_row is None:
+            raise ValueError("candidate region was not found")
+        region = Repository(conn)._row_to_region(region_row)
+        if region.state is not RegionState.candidate:
+            raise ValueError("only a pending candidate can be edited")
+        updated_name = (name or region.name).strip()
+        if not updated_name:
+            raise ValueError("candidate name cannot be empty")
+        updated_locale = (locale or region.locale).strip()
+        if not updated_locale:
+            raise ValueError("candidate locale cannot be empty")
+        conn.execute("UPDATE regions SET name = ?, locale = ?, updated_at = ? WHERE id = ?",
+                     (updated_name, updated_locale, now.isoformat(), region_id))
+        conn.execute(
+            """INSERT INTO finance_assessments
+            (id, region_id, viability_score, projected_profit, decision, assumptions, cfo_reference, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (str(uuid4()), region_id, "1" if report.recommendation == "approve" else "0",
+             str(report.scenarios[0].profit), report.recommendation,
+             report.model_dump_json(), None, now.isoformat()),
+        )
+        region = Repository(conn).get_region(region_id)
+    logger.info("candidate_updated", extra={"region_id": region_id, "result_status": "candidate"})
     return CandidateResult(region=region, finance=report)
 
 

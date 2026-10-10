@@ -23,6 +23,7 @@ from adaptive_commerce.application.worker import replay_cycle, run_all_active_re
 from adaptive_commerce.domain import RegionState
 from adaptive_commerce.integrations.finance import FinanceInputs, read_cfo_export
 from adaptive_commerce.integrations.observability import initialize_tracing
+from adaptive_commerce.presentation.view_models import prepare_cycle_comparison_rows
 
 
 def render_dashboard() -> None:
@@ -449,21 +450,7 @@ def _render_recommendations(path: Path, region_id: str) -> None:
 
 
 def _render_comparison(before: list[dict], after: list[dict], catalog: dict) -> None:
-    before_rank = {item["product_id"]: item for item in before}
-    after_rank = {item["product_id"]: item for item in after}
-    ids = sorted(set(before_rank) | set(after_rank))
-    rows = []
-    for product_id in ids:
-        old, new = before_rank.get(product_id), after_rank.get(product_id)
-        product = catalog.get(product_id)
-        rows.append({
-            "Product": product.name if product else product_id,
-            "Before": old["rank"] if old else "—",
-            "After": new["rank"] if new else "—",
-            "Movement": (f"↑ {old['rank'] - new['rank']}" if old and new and new["rank"] < old["rank"]
-                         else f"↓ {new['rank'] - old['rank']}" if old and new and new["rank"] > old["rank"]
-                         else "New" if new and not old else "Removed" if old and not new else "—"),
-        })
+    rows = prepare_cycle_comparison_rows(before, after, catalog)
     st.dataframe(rows, hide_index=True, width="stretch")
 
 
@@ -532,9 +519,11 @@ def _render_assistant(path: Path, region_id: str) -> None:
     with st.expander("Assistant details and data use", expanded=False):
         st.caption(f"{status['provider']} · {status['model']} · {status['status'].title()} — {status['detail']}")
         st.caption(
-            "Atlas uses its deterministic engine for recommendation outcomes. Chat cannot activate a region "
-            "or recommendation version. Relevant Atlas records, including synthetic signal excerpts, may be "
-            "sent to the configured model provider. Explicit signal corrections are separately audited."
+            "Atlas uses its deterministic engine for recommendation outcomes. Chat can perform only explicitly "
+            "requested, validated operations; region approval still uses the finance gate, and recommendation "
+            "versions change only through the update cycle or rollback. Catalog removals are soft and preserve "
+            "history. Relevant Atlas records, including synthetic signal excerpts, may be sent to the configured "
+            "model provider. Signal corrections are separately audited."
         )
 
     if history:

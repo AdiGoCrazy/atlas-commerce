@@ -6,11 +6,15 @@ from types import SimpleNamespace
 import pytest
 
 from adaptive_commerce.application.assistant import (
-    _execute_tool, ask_assistant, repair_signal_from_trace,
+    _available_tools, _execute_tool, ask_assistant, repair_signal_from_trace,
 )
-from adaptive_commerce.application.dashboard import bootstrap_database
+from adaptive_commerce.application.dashboard import (
+    CandidateRequest, bootstrap_database, submit_candidate,
+)
+from adaptive_commerce.application.lifecycle import approve_region
 from adaptive_commerce.application.operator import inject_demo_signal
 from adaptive_commerce.application.worker import run_region_cycle
+from adaptive_commerce.integrations.finance import FinanceInputs
 from adaptive_commerce.integrations.llm import DEFAULT_MODEL
 from adaptive_commerce.integrations.llm import configured_model, llm_status
 from adaptive_commerce.integrations.trace_readback import TraceReadback, TraceSpanSummary
@@ -172,3 +176,188 @@ def test_assistant_requires_trace_inspection_before_repair_tool(tmp_path):
     assert "inspect and verify" in tool_message["content"]
     with connect(path) as conn:
         assert conn.execute("SELECT COUNT(*) FROM signal_corrections").fetchone()[0] == 0
+
+
+def test_region_snapshot_resolves_custom_region_by_name(tmp_path):
+    path = tmp_path / "region-name.db"
+    bootstrap_database(path)
+    candidate = submit_candidate(path, CandidateRequest(name="Test Coast", assumptions=FinanceInputs()))
+    approve_region(path, candidate.region.id)
+
+    snapshot = _execute_tool(
+        path, "get_region_snapshot", {"region_id": "test coast"}, trace_reader=lambda _trace_id: None,
+    )
+
+    assert snapshot["region"]["id"] == candidate.region.id
+    assert snapshot["region"]["state"] == "active"
+    assert snapshot["recommendations"]
+    assert {"name", "price", "score"} <= snapshot["recommendations"][0].keys()
+    duplicate = _execute_tool(path, "create_candidate_region", {
+        "region_name": "test coast",
+    }, trace_reader=lambda _trace_id: None)
+    assert duplicate["status"] == "already_exists"
+    assert duplicate["region"]["id"] == candidate.region.id
+    assert duplicate["recommendations"]
+
+
+def test_explicit_candidate_create_is_exposed_and_empty_model_reply_uses_result(tmp_path, monkeypatch):
+    path = tmp_path / "assistant-create.db"
+    bootstrap_database(path)
+    create_call = SimpleNamespace(id="create-1", function=SimpleNamespace(
+        name="create_candidate_region", arguments=json.dumps({
+            "region_name": "Diwali Coast", "locale": "en_IN", "monthly_traffic": 72000,
+        })))
+    client = FakeClient([
+        _response(_message(tool_calls=[create_call])),
+        _response(_message(content="")),
+    ])
+
+    result = ask_assistant(path, "Create a candidate region called Diwali Coast in India.", client=client)
+
+    exposed = {tool["function"]["name"] for tool in client.requests[0]["tools"]}
+    assert "create_candidate_region" in exposed
+    assert "set_region_lifecycle" not in exposed
+    assert result.status == "answered"
+    assert "pending operator approval" in result.answer
+    assert "simulated" in result.answer
+    with connect(path) as conn:
+        region = Repository(conn).get_region(result.evidence[0].record_id)
+    assert region.name == "Diwali Coast"
+    assert region.locale == "en_IN"
+    assert region.state.value == "candidate"
+
+
+def test_candidate_update_and_remove_preserve_lifecycle_history(tmp_path):
+    path = tmp_path / "candidate-crud.db"
+    bootstrap_database(path)
+    candidate = submit_candidate(path, CandidateRequest(name="Harbor Draft", assumptions=FinanceInputs()))
+
+    updated = _execute_tool(path, "update_candidate_region", {
+        "region_id": "Harbor Draft", "region_name": "Harbor Market",
+        "finance_updates": {"monthly_traffic": 91000},
+    }, trace_reader=lambda _trace_id: None)
+    removed = _execute_tool(path, "remove_region", {
+        "region_id": candidate.region.id,
+    }, trace_reader=lambda _trace_id: None)
+
+    assert updated["status"] == "updated"
+    assert "Harbor Market" in updated["summary"]
+    assert removed["status"] == "removed"
+    with connect(path) as conn:
+        region = Repository(conn).get_region(candidate.region.id)
+        assessments = Repository(conn).get_finance_assessments_by_region(candidate.region.id)
+        actions = Repository(conn).list_operator_actions(candidate.region.id)
+    assert region.state.value == "rejected"
+    assert len(assessments) == 2
+    assert actions[-1]["action"] == "rejected"
+
+
+def test_explicit_chat_approval_uses_lifecycle_gate(tmp_path):
+    path = tmp_path / "assistant-approval.db"
+    bootstrap_database(path)
+    candidate = submit_candidate(path, CandidateRequest(name="Approval Bay", assumptions=FinanceInputs()))
+    approval_call = SimpleNamespace(id="approve-1", function=SimpleNamespace(
+        name="set_region_lifecycle", arguments=json.dumps({
+            "region_id": "Approval Bay", "action": "approve",
+        })))
+    client = FakeClient([
+        _response(_message(tool_calls=[approval_call])),
+        _response(_message(content="")),
+    ])
+
+    result = ask_assistant(path, "Approve candidate Approval Bay.", client=client)
+
+    assert "Approved and activated Approval Bay" in result.answer
+    with connect(path) as conn:
+        assert Repository(conn).get_region(candidate.region.id).state.value == "active"
+
+
+def test_chat_pipeline_tools_add_synthetic_signal_and_run_engine(tmp_path):
+    path = tmp_path / "assistant-pipeline.db"
+    bootstrap_database(path)
+    candidate = submit_candidate(path, CandidateRequest(name="Festival Bay", assumptions=FinanceInputs()))
+    approve_region(path, candidate.region.id)
+
+    signal = _execute_tool(path, "add_synthetic_signal", {
+        "region_id": "Festival Bay", "topics": ["festival", "electronics"],
+        "confidence": 0.70,
+        "evidence": "Synthetic regional event coverage reports strong festival electronics interest.",
+        "source_type": "event",
+    }, trace_reader=lambda _trace_id: None)
+    cycle = _execute_tool(path, "run_region_cycle", {
+        "region_id": "Festival Bay",
+    }, trace_reader=lambda _trace_id: None)
+    replay = _execute_tool(path, "replay_region_cycle", {
+        "cycle_id": cycle["cycle_id"],
+    }, trace_reader=lambda _trace_id: None)
+
+    assert signal["status"] == "signal_added"
+    assert signal["signal_id"]
+    assert cycle["status"] == "cycle_completed"
+    assert "Festival Bay" in cycle["summary"]
+    assert cycle["cycle_id"]
+    assert replay["status"] == "cycle_completed"
+    assert replay["cycle_id"] != cycle["cycle_id"]
+    assert "Replayed cycle" in replay["summary"]
+
+
+def test_catalog_crud_uses_validated_service_and_preserves_removed_product(tmp_path):
+    path = tmp_path / "assistant-catalog.db"
+    bootstrap_database(path)
+    create = _execute_tool(path, "manage_product_catalog", {
+        "action": "create", "product_id": "festival-lantern", "name": "Festival Lantern",
+        "tags": ["festival", "outdoor"], "price": 32.5, "cost": 12.0,
+        "base_popularity": 4.0,
+    }, trace_reader=lambda _trace_id: None)
+    update = _execute_tool(path, "manage_product_catalog", {
+        "action": "update", "product_id": "festival-lantern", "price": 36.0,
+    }, trace_reader=lambda _trace_id: None)
+    remove = _execute_tool(path, "manage_product_catalog", {
+        "action": "remove", "product_id": "festival-lantern",
+    }, trace_reader=lambda _trace_id: None)
+    catalog = _execute_tool(path, "get_product_catalog", {}, trace_reader=lambda _trace_id: None)
+
+    assert "Created product Festival Lantern" in create["summary"]
+    assert "Updated product Festival Lantern" in update["summary"]
+    assert "Soft-removed product Festival Lantern" in remove["summary"]
+    stored = next(item for item in catalog["products"] if item["id"] == "festival-lantern")
+    assert stored["price"] == 36.0
+    assert stored["in_stock"] is False
+    assert stored["eligible"] is False
+    actions = [action for action in catalog["recent_changes"]
+               if action["product_id"] == "festival-lantern"]
+    assert [action["action"] for action in reversed(actions)] == ["create", "update", "remove"]
+
+
+def test_signal_delete_only_removes_pending_record_and_keeps_audit_snapshot(tmp_path):
+    path = tmp_path / "assistant-signal-delete.db"
+    bootstrap_database(path)
+    signal = inject_demo_signal(
+        path, "aspen", ["festival"], 0.7,
+        "Synthetic pending festival evidence that is safe to withdraw before a cycle.",
+    )
+
+    result = _execute_tool(path, "remove_pending_signal", {"signal_id": signal.id},
+                           trace_reader=lambda _trace_id: None)
+
+    assert result["status"] == "signal_removed"
+    with connect(path) as conn:
+        assert Repository(conn).get_signal(signal.id) is None
+        audit = conn.execute(
+            "SELECT signal_json FROM signal_deletions WHERE signal_id = ?", (signal.id,),
+        ).fetchone()
+    assert json.loads(audit["signal_json"])["topics"] == ["festival"]
+
+
+def test_agent_write_capabilities_require_explicit_operation_language():
+    assert "create_candidate_region" not in _available_tools("What is happening in the portfolio?")
+    assert "set_region_lifecycle" not in _available_tools("Show the status of active regions.")
+    assert "create_candidate_region" in _available_tools("Create a new region candidate.")
+    assert "set_region_lifecycle" in _available_tools("Approve the candidate region.")
+    assert "manage_product_catalog" not in _available_tools("What is the price of each product?")
+    assert "manage_product_catalog" in _available_tools("Create a new product in the catalog.")
+    assert "manage_product_catalog" not in _available_tools("What happens if I remove a product?")
+    assert "remove_pending_signal" in _available_tools("Remove this pending signal.")
+    assert "remove_pending_signal" not in _available_tools("What happens if I remove this signal?")
+    assert "set_region_lifecycle" not in _available_tools("Should I approve this candidate?")
+    assert "replay_region_cycle" in _available_tools("Replay cycle abc123.")

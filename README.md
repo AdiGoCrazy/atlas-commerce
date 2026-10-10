@@ -107,12 +107,16 @@ features such as tool calling; set `LLM_MODEL` to a specific OpenRouter
 model ID to change it. To use the official OpenAI endpoint instead, set
 `LLM_PROVIDER=openai`, provide `OPENAI_API_KEY`, and set `LLM_MODEL` to the
 account's model. Both use the official OpenAI-compatible Python SDK and
-Neatlogs instrumentation. The assistant can inspect Atlas data, preview
-recommendation changes through the deterministic ranker and evaluation gate,
-and inspect sanitized cycle trace metadata. It cannot activate regions or
-recommendation versions. A specifically requested signal correction requires
-exact cycle trace readback and creates a new audited signal while retaining the
-original.
+Neatlogs instrumentation. The assistant can inspect Atlas data and the product
+catalog, preview recommendation changes through the deterministic ranker and
+evaluation gate, and inspect sanitized cycle trace metadata. Explicit requests
+can create/edit/soft-remove candidates, perform lifecycle actions, add synthetic
+signals, withdraw only unused signals with an audit copy, run or replay regional
+cycles, and create/edit/soft-remove shared catalog products.
+Candidate activation still uses the finance gate; recommendation versions change
+only through the deterministic cycle or rollback. Product and region removals
+preserve history. A specifically requested signal correction requires exact cycle
+trace readback and creates a new audited signal while retaining the original.
 
 For trace-guided signal correction, also configure `NEATLOGS_PROJECT_ID` and
 `NEATLOGS_TOKEN` for trace readback. A correction is stored as a new signal with
