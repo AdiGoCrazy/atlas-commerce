@@ -1,0 +1,81 @@
+{
+  "cli_version": "0.11.4",
+  "checkpoint_id": "01M4KBRR5NWMH60045BKMEQ5TR",
+  "session_id": "01a12508-74ff-72d1-96e6-510dfb8d9def",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-10T16:54:04.328862387Z",
+  "branch": "feat/s2-ad-region-lifecycle",
+  "checkpoints_count": 8,
+  "save_step_count": 1,
+  "files_touched": [
+    "README.md",
+    "data/fixtures/regions.json",
+    "src/adaptive_commerce/application/__init__.py",
+    "src/adaptive_commerce/application/dashboard.py",
+    "src/adaptive_commerce/application/lifecycle.py",
+    "src/adaptive_commerce/persistence/repository.py",
+    "src/adaptive_commerce/presentation/dashboard.py",
+    "src/adaptive_commerce/presentation/view_models.py",
+    "tests/test_dashboard.py",
+    "tests/test_lifecycle.py",
+    "tests/test_persistence.py",
+    "tests/test_presentation.py",
+    "tests/test_repository.py"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.6-luna",
+  "turn_id": "5a5a39d93257",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 843936,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 20841728,
+    "output_tokens": 83003,
+    "api_call_count": 216
+  },
+  "session_metrics": {
+    "turn_count": 24
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-10-10T16:54:03.944125795Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 3860,
+    "human_modified": 74,
+    "human_removed": 0,
+    "total_committed": 3860,
+    "total_lines_changed": 3934,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 1937,
+      "user_lines_removed": 28,
+      "agent_lines_added": 17,
+      "agent_lines_removed": 1679,
+      "user_added_per_file": {
+        "data/fixtures/regions.json": 2,
+        "src/adaptive_commerce/application/__init__.py": 13,
+        "src/adaptive_commerce/application/dashboard.py": 47,
+        "src/adaptive_commerce/application/lifecycle.py": 103,
+        "src/adaptive_commerce/persistence/repository.py": 505,
+        "src/adaptive_commerce/presentation/dashboard.py": 256,
+        "src/adaptive_commerce/presentation/view_models.py": 94,
+        "tests/test_dashboard.py": 40,
+        "tests/test_lifecycle.py": 72,
+        "tests/test_persistence.py": 2,
+        "tests/test_presentation.py": 106,
+        "tests/test_repository.py": 697
+      },
+      "user_removed_per_file": {
+        "data/fixtures/regions.json": 2,
+        "src/adaptive_commerce/application/dashboard.py": 7,
+        "src/adaptive_commerce/presentation/dashboard.py": 12,
+        "tests/test_dashboard.py": 5,
+        "tests/test_persistence.py": 2
+      }
+    }
+  ]
+}
