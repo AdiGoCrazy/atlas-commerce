@@ -70,15 +70,67 @@ def render_dashboard() -> None:
                 st.json(imported.model_dump(mode="json"))
         except (OSError, ValidationError):
             st.error("The cfo.ai export could not be read or failed validation. Local fallback remains available.")
+    
     if report:
         st.warning(report.reason)
-        st.write(f"Simulated recommendation: {report.recommendation}. This does not activate the region.")
-        st.dataframe([item.model_dump(mode="json") for item in report.scenarios], hide_index=True)
-        with st.expander("Model assumptions and ratio definitions"):
+
+        st.write(f"**Region:** {labels[selected]}")
+        st.write(f"**Assessment status:** {report.status}")
+        st.write(f"**Recommendation:** {report.recommendation.upper()}")
+
+        st.caption(
+            "These are simulated financial results. "
+            "A recommendation does not activate a region."
+        )
+
+        st.subheader("Financial scenarios")
+
+        for scenario in report.scenarios:
+            st.markdown(f"### {scenario.name.title()} scenario")
+
+            col1, col2, col3 = st.columns(3)
+
+            col1.metric(
+                "Revenue",
+                f"{scenario.revenue:,.2f}"
+            )
+
+            col2.metric(
+                "Profit",
+                f"{scenario.profit:,.2f}"
+            )
+
+            col3.metric(
+                "Gross profit",
+                f"{scenario.gross_profit:,.2f}"
+            )
+
+            col4, col5 = st.columns(2)
+
+            col4.metric(
+                "Operating cost",
+                f"{scenario.operating_cost:,.2f}"
+            )
+
+            if scenario.gross_margin is not None:
+                col5.metric(
+                    "Gross margin",
+                    f"{scenario.gross_margin:.2%}"
+                )
+            else:
+                col5.metric("Gross margin", "N/A")
+
+            st.divider()
+
+        with st.expander("Financial assumptions"):
             st.json(report.assumptions.model_dump(mode="json"))
-            st.caption("Monthly gross profit subtracts product and fulfillment costs. Campaign ROI = (gross profit − campaign spend) / campaign spend. Null runway means no operating burn; null ROI means zero spend.")
+
     else:
-        st.info("No saved form assessment. Seeded finance is synthetic and is not verified cfo.ai evidence.")
+        st.info(
+            "No saved financial assessment available "
+            "for this region."
+        )
+
     st.subheader("Storefront preview")
     ranked = preview_products(path, selected)
     if not ranked:
