@@ -1,5 +1,6 @@
 """Tests for repository CRUD operations and version history."""
 
+import sqlite3
 import tempfile
 from decimal import Decimal
 from datetime import datetime, timezone
@@ -198,12 +199,15 @@ class TestRepository:
         assert len(signals) == 1
         assert signals[0].id == "sig-1"
 
-    def test_get_unprocessed_signals(self, repo):
-        """Get unprocessed signals for a region."""
-        signals = repo.get_unprocessed_signals("cedar")
+    def test_get_signals_by_region_and_cursor(self, repo):
+        """Get signals for a region, optionally after an ID."""
+        signals = repo.get_signals_by_region("cedar")
         assert len(signals) == 1
         assert signals[0].region_id == "cedar"
         assert signals[0].source_id == "src-event-festival-2026-001"
+        assert repo.get_signals_by_region("cedar", since_id="zzz") == []
+        with pytest.raises(ValueError, match="positive integer"):
+            repo.get_signals_by_region("cedar", limit=0)
 
     def test_get_signals_by_source_id(self, repo):
         """Get signals by source_id."""
@@ -400,7 +404,7 @@ class TestRepository:
         )
         empty_repo.create_region(region)
 
-        # Create profile
+        # Create profile and its active/candidate version snapshots.
         profile = RegionProfile(
             region_id="test-region",
             weights={"outdoor": Decimal("3")},
@@ -411,7 +415,14 @@ class TestRepository:
             "INSERT INTO region_profiles (region_id, weights, active_version_id, max_weight_delta) VALUES (?, ?, ?, ?)",
             ("test-region", _json_dumps(profile.weights), profile.active_version_id, str(profile.max_weight_delta)),
         )
-        empty_repo.conn.commit()
+        for version_id, weights, status in (
+            ("v1", {"outdoor": Decimal("3")}, VersionStatus.active),
+            ("v2", {"outdoor": Decimal("3"), "festival": Decimal("4")}, VersionStatus.candidate),
+        ):
+            empty_repo.create_recommendation_version(RecommendationVersion(
+                id=version_id, region_id="test-region", parent_id=None,
+                weights=weights, status=status, created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            ))
 
         retrieved = empty_repo.get_region_profile("test-region")
         assert retrieved is not None
@@ -419,16 +430,82 @@ class TestRepository:
         assert retrieved.weights["outdoor"] == Decimal("3")
         assert retrieved.max_weight_delta == Decimal("5")
 
-        # Update weights
-        new_weights = {"outdoor": Decimal("3"), "festival": Decimal("4")}
-        assert empty_repo.update_profile_weights("test-region", new_weights)
-        retrieved = empty_repo.get_region_profile("test-region")
-        assert retrieved.weights == new_weights
-
-        # Set active version
+        # Activate a candidate and update the profile from its immutable snapshot.
         assert empty_repo.set_active_version("test-region", "v2")
         retrieved = empty_repo.get_region_profile("test-region")
         assert retrieved.active_version_id == "v2"
+        assert retrieved.weights == {"outdoor": Decimal("3"), "festival": Decimal("4")}
+        assert empty_repo.get_recommendation_version("v1").status == VersionStatus.rolled_back
+        assert empty_repo.get_recommendation_version("v2").status == VersionStatus.active
+
+    def test_active_version_rejects_missing_cross_region_and_rejected_versions(self, empty_repo):
+        region = Region(
+            id="r1", name="One", state=RegionState.active, locale="en_US",
+            created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        )
+        other = Region(
+            id="r2", name="Two", state=RegionState.active, locale="en_US",
+            created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        )
+        empty_repo.create_region(region)
+        empty_repo.create_region(other)
+        empty_repo.conn.execute(
+            "INSERT INTO region_profiles (region_id, weights, active_version_id) VALUES (?, ?, ?)",
+            ("r1", '{"old":"1"}', "old"),
+        )
+        for version_id, region_id, status in (
+            ("old", "r1", VersionStatus.active),
+            ("foreign", "r2", VersionStatus.candidate),
+            ("rejected", "r1", VersionStatus.rejected),
+        ):
+            empty_repo.create_recommendation_version(RecommendationVersion(
+                id=version_id, region_id=region_id, parent_id=None, weights={"new": Decimal("2")},
+                status=status, created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            ))
+
+        assert not empty_repo.set_active_version("r1", "missing")
+        assert not empty_repo.set_active_version("r1", "foreign")
+        assert not empty_repo.set_active_version("r1", "rejected")
+        assert empty_repo.get_region_profile("r1").active_version_id == "old"
+        assert empty_repo.get_recommendation_version("old").status == VersionStatus.active
+
+    def test_repository_writes_follow_caller_transaction(self, empty_repo):
+        region = Region(
+            id="rollback-region", name="Rollback", state=RegionState.candidate,
+            locale="en_US", created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        )
+        empty_repo.conn.execute("SAVEPOINT caller_work")
+        empty_repo.create_region(region)
+        empty_repo.conn.execute("ROLLBACK TO SAVEPOINT caller_work")
+        empty_repo.conn.execute("RELEASE SAVEPOINT caller_work")
+        assert empty_repo.get_region("rollback-region") is None
+
+    def test_active_version_change_rolls_back_all_rows_on_write_failure(self, empty_repo):
+        region = Region(
+            id="r-atomic", name="Atomic", state=RegionState.active,
+            locale="en_US", created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        )
+        empty_repo.create_region(region)
+        empty_repo.conn.execute(
+            "INSERT INTO region_profiles (region_id, weights, active_version_id) VALUES (?, ?, ?)",
+            ("r-atomic", '{"old":"1"}', "old"),
+        )
+        for version_id, status in (("old", VersionStatus.active), ("new", VersionStatus.candidate)):
+            empty_repo.create_recommendation_version(RecommendationVersion(
+                id=version_id, region_id="r-atomic", parent_id=None,
+                weights={version_id: Decimal("2")}, status=status,
+                created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            ))
+        empty_repo.conn.execute(
+            "CREATE TRIGGER fail_pointer BEFORE UPDATE OF active_version_id ON region_profiles "
+            "BEGIN SELECT RAISE(ABORT, 'injected failure'); END"
+        )
+
+        with pytest.raises(sqlite3.IntegrityError, match="injected failure"):
+            empty_repo.set_active_version("r-atomic", "new")
+        assert empty_repo.get_region_profile("r-atomic").active_version_id == "old"
+        assert empty_repo.get_recommendation_version("old").status == VersionStatus.active
+        assert empty_repo.get_recommendation_version("new").status == VersionStatus.candidate
 
     # =========================== EVENT WINDOWS ===========================
 

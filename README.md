@@ -1,17 +1,15 @@
 # Atlas Commerce
 
-Atlas Commerce is a prototype for evaluating whether a new region is financially viable and, after a person approves it, adapting that region's product recommendations as regional signals arrive. The demo uses fictional regions, synthetic news/forum/social/event signals, and simulated commerce results; it is not a production commerce system.
+Atlas Commerce is a prototype for assessing candidate regions, ranking products for seeded active regions, and proposing bounded profile changes from synthetic signals. The demo uses fictional regions and simulated commerce results; it is not a production commerce system. Candidate approval, autonomous execution, evaluation, and rollback are not yet wired into the dashboard.
 
 ## How it works
 
-1. An operator submits a candidate region with market assumptions and optional launch context.
-2. The financial assessment compares regional assumptions and, when available, cfo.ai base, growth, and downside scenarios. A local fallback is clearly labeled if cfo.ai is unavailable.
-3. A person approves or rejects the candidate. A region never becomes active without approval.
-4. For active regions, the worker processes new synthetic signals, normalizes them, checks policy, and proposes a bounded recommendation-profile update.
-5. The evaluator compares active and candidate profiles on the same simulated customer cohort. Candidates activate only after policy, quality, and financial checks pass; otherwise the active version is preserved.
-6. The dashboard shows before/after products, score explanations, evidence, outcomes, and integration status.
+1. An operator submits a candidate region; the app stores it and a simulated finance assessment in SQLite.
+2. The dashboard displays local base/growth/downside results and may display a validated, operator-supplied cfo.ai export. No live cfo.ai MCP read is implemented.
+3. The dashboard previews rankings for seeded regions with active profiles. It does not approve candidates or run the autonomous worker.
+4. Application services can normalize fixture signals and propose bounded profile changes, but activation/evaluation/rollback are not connected as an end-to-end UI workflow.
 
-Routine updates to an active region do not need human approval. Operators can pause/resume regions and restore a prior known-good recommendation version.
+The planned product includes human approval, autonomous updates, and rollback. Those controls are not present in the current demo.
 
 ## Architecture
 
@@ -62,19 +60,19 @@ uv sync
 uv run pytest
 ```
 
-The planned full-demo checks, once the dashboard and worker entry points exist, are:
+Available demo checks are:
 
 ```bash
 uv run python -m compileall src tests app.py worker.py
 uv run streamlit run app.py
 ```
 
-The Sprint 1 recovery code includes shared domain models, atomic SQLite seeding,
-lossless Decimal storage, a deterministic recommender, and a Streamlit shell.
-The shell saves candidate regions and simulated financial assessments, displays
-three financial scenarios, and previews seeded active-region recommendations.
-It never activates candidates. Approval, signal normalization, bounded updates,
-and the autonomous worker remain later sprint work.
+The current app includes validated domain models, SQLite seeding and CRUD,
+lossless Decimal storage, deterministic ranking, candidate assessment, fixture
+signal normalization, and bounded profile proposal services. The Streamlit shell
+saves candidates and simulated assessments, and previews recommendations for
+seeded active regions. Activation and autonomous worker orchestration are not
+implemented in the dashboard.
 
 Run the shell with `uv run streamlit run app.py`. Set `ATLAS_DB_PATH` to use a
 different SQLite file. Tests use temporary databases and do not need credentials.

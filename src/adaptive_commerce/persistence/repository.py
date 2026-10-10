@@ -73,7 +73,6 @@ class Repository:
                 region.updated_at.isoformat() if region.updated_at else None,
             ),
         )
-        self.conn.commit()
 
     def update_region_state(self, region_id: str, state: RegionState) -> bool:
         """Update region lifecycle state."""
@@ -82,7 +81,6 @@ class Repository:
             "UPDATE regions SET state = ?, updated_at = ? WHERE id = ?",
             (state.value, now, region_id),
         )
-        self.conn.commit()
         return cur.rowcount > 0
 
     def update_region_locale(self, region_id: str, locale: str) -> bool:
@@ -92,7 +90,6 @@ class Repository:
             "UPDATE regions SET locale = ?, updated_at = ? WHERE id = ?",
             (locale, now, region_id),
         )
-        self.conn.commit()
         return cur.rowcount > 0
 
     def _row_to_region(self, row: sqlite3.Row) -> Region:
@@ -151,7 +148,6 @@ class Repository:
                 str(product.base_popularity),
             ),
         )
-        self.conn.commit()
 
     def update_product_stock(self, product_id: str, in_stock: bool) -> bool:
         """Update product stock status."""
@@ -159,7 +155,6 @@ class Repository:
             "UPDATE products SET in_stock = ? WHERE id = ?",
             (1 if in_stock else 0, product_id),
         )
-        self.conn.commit()
         return cur.rowcount > 0
 
     def _row_to_product(self, row: sqlite3.Row) -> Product:
@@ -182,11 +177,13 @@ class Repository:
             return None
         return self._row_to_signal(row)
 
-    def get_unprocessed_signals(
-        self, region_id: str, limit: int = 100, since_cursor: str | None = None
+    def get_signals_by_region(
+        self, region_id: str, limit: int = 100, since_id: str | None = None
     ) -> list[Signal]:
-        """Get unprocessed signals for a region, optionally since a cursor."""
-        if since_cursor:
+        """Get signals for a region in ID order, optionally after an ID."""
+        if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
+            raise ValueError("limit must be a positive integer")
+        if since_id:
             rows = self.conn.execute(
                 """
                 SELECT * FROM signals
@@ -194,7 +191,7 @@ class Repository:
                 ORDER BY id
                 LIMIT ?
                 """,
-                (region_id, since_cursor, limit),
+                (region_id, since_id, limit),
             ).fetchall()
         else:
             rows = self.conn.execute(
@@ -236,7 +233,6 @@ class Repository:
                     signal.normalized_text,
                 ),
             )
-            self.conn.commit()
             return True
         except sqlite3.IntegrityError as e:
             if "UNIQUE constraint failed: signals.source_id" in str(e):
@@ -287,7 +283,6 @@ class Repository:
                 assessment.created_at.isoformat(),
             ),
         )
-        self.conn.commit()
 
     def _row_to_finance_assessment(self, row: sqlite3.Row) -> FinanceAssessment:
         data = dict(row)
@@ -350,7 +345,6 @@ class Repository:
                 version.created_at.isoformat(),
             ),
         )
-        self.conn.commit()
 
     def _row_to_recommendation_version(self, row: sqlite3.Row) -> RecommendationVersion:
         data = dict(row)
@@ -375,23 +369,54 @@ class Repository:
         """Get the active region profile with weights and active_version_id."""
         return self.get_region_profile(region_id)
 
-    def update_profile_weights(self, region_id: str, weights: dict[str, Decimal]) -> bool:
-        """Update region profile weights."""
-        cur = self.conn.execute(
-            "UPDATE region_profiles SET weights = ? WHERE region_id = ?",
-            (_json_dumps(weights), region_id),
-        )
-        self.conn.commit()
-        return cur.rowcount > 0
-
     def set_active_version(self, region_id: str, version_id: str) -> bool:
-        """Set the active recommendation version for a region."""
-        cur = self.conn.execute(
-            "UPDATE region_profiles SET active_version_id = ? WHERE region_id = ?",
-            (version_id, region_id),
-        )
-        self.conn.commit()
-        return cur.rowcount > 0
+        """Activate a same-region candidate version atomically; caller commits."""
+        self.conn.execute("SAVEPOINT activate_version")
+        try:
+            target = self.conn.execute(
+                "SELECT status FROM recommendation_versions WHERE id = ? AND region_id = ?",
+                (version_id, region_id),
+            ).fetchone()
+            profile = self.conn.execute(
+                "SELECT active_version_id FROM region_profiles WHERE region_id = ?",
+                (region_id,),
+            ).fetchone()
+            if target is None or profile is None or target["status"] not in {
+                VersionStatus.candidate.value, VersionStatus.active.value,
+            }:
+                self.conn.execute("ROLLBACK TO SAVEPOINT activate_version")
+                self.conn.execute("RELEASE SAVEPOINT activate_version")
+                return False
+
+            previous_id = profile["active_version_id"]
+            previous = self.conn.execute(
+                "SELECT status FROM recommendation_versions WHERE id = ? AND region_id = ?",
+                (previous_id, region_id),
+            ).fetchone()
+            if previous is None:
+                self.conn.execute("ROLLBACK TO SAVEPOINT activate_version")
+                self.conn.execute("RELEASE SAVEPOINT activate_version")
+                return False
+            if previous_id != version_id:
+                self.conn.execute(
+                    "UPDATE recommendation_versions SET status = ? WHERE id = ? AND status = ?",
+                    (VersionStatus.rolled_back.value, previous_id, VersionStatus.active.value),
+                )
+            self.conn.execute(
+                "UPDATE recommendation_versions SET status = ? WHERE id = ?",
+                (VersionStatus.active.value, version_id),
+            )
+            self.conn.execute(
+                "UPDATE region_profiles SET active_version_id = ?, weights = "
+                "(SELECT weights FROM recommendation_versions WHERE id = ?) WHERE region_id = ?",
+                (version_id, version_id, region_id),
+            )
+        except Exception:
+            self.conn.execute("ROLLBACK TO SAVEPOINT activate_version")
+            self.conn.execute("RELEASE SAVEPOINT activate_version")
+            raise
+        self.conn.execute("RELEASE SAVEPOINT activate_version")
+        return True
 
     def _row_to_region_profile(self, row: sqlite3.Row) -> RegionProfile:
         data = dict(row)
@@ -438,7 +463,6 @@ class Repository:
                 _json_dumps(event.boosts),
             ),
         )
-        self.conn.commit()
 
     def _row_to_event_window(self, row: sqlite3.Row) -> EventWindow:
         data = dict(row)
