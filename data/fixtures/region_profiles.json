@@ -1,0 +1,14 @@
+[
+  {
+    "region_id": "cedar",
+    "weights": {"outdoor": "3"},
+    "active_version_id": "v-cedar-1",
+    "max_weight_delta": "5"
+  },
+  {
+    "region_id": "aspen",
+    "weights": {"outdoor": "3"},
+    "active_version_id": "v-aspen-1",
+    "max_weight_delta": "5"
+  }
+]

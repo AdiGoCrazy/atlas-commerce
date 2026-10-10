@@ -1,0 +1,82 @@
+[
+  {
+    "id": "boots",
+    "name": "Trail Boots",
+    "tags": ["outdoor"],
+    "price": "120.00",
+    "cost": "65.00",
+    "in_stock": true,
+    "eligible": true,
+    "base_popularity": "3"
+  },
+  {
+    "id": "tent",
+    "name": "Backpacking Tent",
+    "tags": ["outdoor"],
+    "price": "280.00",
+    "cost": "140.00",
+    "in_stock": true,
+    "eligible": true,
+    "base_popularity": "2"
+  },
+  {
+    "id": "pack",
+    "name": "Hiking Pack 45L",
+    "tags": ["outdoor"],
+    "price": "160.00",
+    "cost": "85.00",
+    "in_stock": true,
+    "eligible": true,
+    "base_popularity": "2"
+  },
+  {
+    "id": "bottle",
+    "name": "Insulated Bottle",
+    "tags": ["outdoor"],
+    "price": "35.00",
+    "cost": "15.00",
+    "in_stock": true,
+    "eligible": true,
+    "base_popularity": "3"
+  },
+  {
+    "id": "poles",
+    "name": "Trekking Poles",
+    "tags": ["outdoor"],
+    "price": "90.00",
+    "cost": "45.00",
+    "in_stock": true,
+    "eligible": true,
+    "base_popularity": "1"
+  },
+  {
+    "id": "charger",
+    "name": "Portable Charger 20000mAh",
+    "tags": ["electronics"],
+    "price": "45.00",
+    "cost": "22.00",
+    "in_stock": true,
+    "eligible": true,
+    "base_popularity": "2"
+  },
+  {
+    "id": "pouch",
+    "name": "Festival Phone Pouch",
+    "tags": ["festival"],
+    "price": "25.00",
+    "cost": "10.00",
+    "in_stock": true,
+    "eligible": true,
+    "base_popularity": "1"
+  },
+  {
+    "id": "lights",
+    "name": "LED String Lights",
+    "tags": ["festival", "electronics"],
+    "price": "18.00",
+    "cost": "7.00",
+    "in_stock": true,
+    "eligible": true,
+    "base_popularity": "1"
+  }
+]

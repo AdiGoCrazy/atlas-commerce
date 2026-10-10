@@ -1,0 +1,14 @@
+[
+  {
+    "id": "sig-cedar-festival-1",
+    "region_id": "cedar",
+    "source_id": "src-event-festival-2026-001",
+    "source_type": "event",
+    "topics": ["festival", "electronics"],
+    "confidence": "0.92",
+    "observed_at": "2026-10-10T10:00:00+00:00",
+    "evidence_excerpt": "Cedar Valley Fall Festival announced for Oct 15-17, expecting 50k+ attendees. Strong demand for portable electronics and festival accessories.",
+    "language": "en",
+    "normalized_text": "Cedar Valley Fall Festival announced for Oct 15-17, expecting 50k+ attendees. Strong demand for portable electronics and festival accessories."
+  }
+]
