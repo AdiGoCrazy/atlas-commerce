@@ -84,3 +84,37 @@ and independent PR review remain explicit gates. Development against the tested
 contracts can proceed, but the team must resolve or explicitly carry these
 named blockers and announce the merged baseline before declaring the transition.
 The worker/manual autonomous demo is later-sprint scope and is not claimed here.
+
+## Imported partner evidence from integration baseline
+
+The following evidence was added by the integration baseline branch and retained
+during merge. It supplements the local recovery evidence above; it does not
+claim that the application itself has a live cfo.ai MCP client.
+
+### neatlogs
+
+- Authenticated Doctor probe: `60df973d2a67ac1df473c6237eb999f5`.
+- Result: Doctor v2 authenticated probe passed; this is SDK connectivity evidence,
+  not an Atlas Commerce workflow trace.
+
+### Entire
+
+- Checkpoint commit: `e917a7005874888c542a6822f6fe6ea4d3c519dc`.
+- Checkpoint reference: `01M4JHH3NAKDHVX6M0465MBD7Q`.
+- Repository graph: `entire-graph` was unavailable.
+
+### cfo.ai
+
+- Model: `Atlas Commerce — Harbor Bay` (`#5ed`); scenarios Base (`#52f`),
+  Growth (`#363`), and Downside (`#035`).
+- Export: [Harbor Bay workbook](evidence/cfo-ai-harbor-bay.xlsx).
+- Period/currency: monthly run-rate, USD, October 2026.
+- Reported base outputs: $106,250 revenue, $37,781.37 gross profit, 35.56%
+  gross margin, and $19,281.37 contribution after listed costs.
+- Reported growth/downside outputs and assumptions are retained in the workbook.
+  Product cost and infrastructure assumptions are explicitly provisional or
+  synthetic; campaign ROI is a labeled proxy rather than causal attribution.
+- This provider evidence was supplied by the integration baseline branch. The
+  cfo.ai MCP connection from the application remains unverified here; the local
+  adapter continues to report degraded status unless a validated export is
+  supplied.

@@ -12,3 +12,4 @@ __pycache__/
 .streamlit/secrets.toml
 docs/evidence.local.md
 *.log
+.DS_Store
