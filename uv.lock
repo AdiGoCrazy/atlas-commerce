@@ -154,9 +154,9 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "neatlogs", specifier = ">=0.1" },
+    { name = "neatlogs", specifier = ">=1.4.26,<2" },
     { name = "pydantic", specifier = ">=2.0,<3" },
-    { name = "streamlit", specifier = ">=1.65.0" },
+    { name = "streamlit", specifier = ">=1.40,<2" },
 ]
 
 [package.metadata.requires-dev]

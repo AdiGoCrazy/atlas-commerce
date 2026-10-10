@@ -1,0 +1,110 @@
+"""Sprint 1 dashboard services backed by validated SQLite state."""
+
+import json
+import logging
+from contextlib import closing
+from datetime import datetime, timezone
+from pathlib import Path
+from uuid import uuid4
+
+import neatlogs
+from pydantic import BaseModel, ConfigDict, Field
+
+from adaptive_commerce.domain import Product, Region, RegionProfile, RegionState
+from adaptive_commerce.integrations.finance import FinanceInputs, FinanceReport, assess_finance
+from adaptive_commerce.persistence import connect, initialize, load_fixtures
+from adaptive_commerce.recommender import RankingProduct, RankingProfile, RankedProduct, rank_products
+
+logger = logging.getLogger(__name__)
+FIXTURES = Path(__file__).resolve().parents[3] / "data" / "fixtures"
+
+
+class CandidateRequest(BaseModel):
+    """Validated form input; a financial recommendation never activates a region."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    name: str = Field(min_length=1, max_length=120)
+    assumptions: FinanceInputs
+
+
+class CandidateResult(BaseModel):
+    """Durable candidate identity and its explicitly simulated assessment."""
+
+    region: Region
+    finance: FinanceReport
+
+
+def bootstrap_database(path: Path) -> None:
+    """Initialize and seed a database without overwriting existing rows."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with closing(connect(path)) as conn:
+        initialize(conn)
+        load_fixtures(conn, FIXTURES)
+
+
+def list_regions(path: Path) -> list[Region]:
+    """Return validated regions in deterministic order."""
+    with closing(connect(path)) as conn:
+        result = []
+        for row in conn.execute("SELECT * FROM regions ORDER BY name"):
+            payload = dict(row)
+            payload["available_source_types"] = json.loads(payload["available_source_types"])
+            result.append(Region.model_validate(payload))
+        return result
+
+
+@neatlogs.span(kind="WORKFLOW", name="submit_candidate")
+def submit_candidate(path: Path, request: CandidateRequest) -> CandidateResult:
+    """Atomically save a candidate and fallback assessment; never activate it."""
+    now = datetime.now(timezone.utc)
+    region = Region(id=str(uuid4()), name=request.name, state=RegionState.candidate,
+                    locale="en_US", created_at=now)
+    report = assess_finance(request.assumptions)
+    with closing(connect(path)) as conn, conn:
+        conn.execute(
+            "INSERT INTO regions (id, name, state, locale, created_at) VALUES (?, ?, ?, ?, ?)",
+            (region.id, region.name, region.state.value, region.locale, now.isoformat()),
+        )
+        conn.execute(
+            """INSERT INTO finance_assessments
+            (id, region_id, viability_score, projected_profit, decision, assumptions, cfo_reference, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (str(uuid4()), region.id, "1" if report.recommendation == "approve" else "0",
+             str(report.scenarios[0].profit), report.recommendation,
+             report.model_dump_json(), None, now.isoformat()),
+        )
+    logger.info("candidate_registered", extra={"region_id": region.id, "result_status": "candidate"})
+    return CandidateResult(region=region, finance=report)
+
+
+def candidate_report(path: Path, region_id: str) -> FinanceReport | None:
+    """Load a saved form assessment; legacy seed assumptions are not live evidence."""
+    with closing(connect(path)) as conn:
+        row = conn.execute(
+            "SELECT assumptions FROM finance_assessments WHERE region_id = ? ORDER BY created_at DESC LIMIT 1",
+            (region_id,),
+        ).fetchone()
+    if row is None:
+        return None
+    payload = json.loads(row["assumptions"])
+    if payload.get("source") == "local_simulation":
+        return FinanceReport.model_validate(payload)
+    return None
+
+
+@neatlogs.span(kind="WORKFLOW", name="storefront_preview")
+def preview_products(path: Path, region_id: str) -> list[RankedProduct]:
+    """Rank a stored profile; event injection remains a later workflow action."""
+    with closing(connect(path)) as conn:
+        row = conn.execute("SELECT * FROM region_profiles WHERE region_id = ?", (region_id,)).fetchone()
+        if row is None:
+            return []
+        payload = dict(row)
+        payload["weights"] = json.loads(payload["weights"])
+        profile = RankingProfile.model_validate(RegionProfile.model_validate(payload))
+        products = []
+        for row in conn.execute("SELECT * FROM products"):
+            payload = dict(row)
+            payload["tags"] = json.loads(payload["tags"])
+            products.append(RankingProduct.model_validate(Product.model_validate(payload)))
+    return rank_products(products, profile, now=datetime.now(timezone.utc))

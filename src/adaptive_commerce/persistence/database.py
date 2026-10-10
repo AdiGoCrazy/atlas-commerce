@@ -24,17 +24,15 @@ def initialize(conn: sqlite3.Connection) -> None:
 
 
 def _json_dumps(obj: Any) -> str:
-    """Serialize to JSON, handling Decimal as float and datetime as ISO string."""
-    def default(o):
+    """Serialize Decimal losslessly as strings and datetimes as ISO strings."""
+    def default(o: Any) -> str:
         if isinstance(o, Decimal):
-            return float(o)
+            return str(o)
         if hasattr(o, "isoformat"):
             return o.isoformat()
-        if isinstance(o, float):
-            return o
         raise TypeError(f"Object of type {type(o).__name__} is not JSON serializable")
     
-    return json.dumps(obj, default=default)
+    return json.dumps(obj, default=default, allow_nan=False)
 
 
 def _json_loads(text: str | None) -> Any:
