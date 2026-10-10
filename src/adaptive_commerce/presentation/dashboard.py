@@ -15,6 +15,15 @@ from adaptive_commerce.integrations.finance import FinanceInputs, read_cfo_expor
 from adaptive_commerce.integrations.observability import initialize_tracing
 from adaptive_commerce.presentation.view_models import prepare_approval_state
 
+from adaptive_commerce.application.comparison import (
+    compare_recommendations,
+    list_recommendation_versions,
+)
+
+from adaptive_commerce.presentation.view_models import (
+    prepare_ranking_comparison,
+)
+
 def render_dashboard() -> None:
     """Render seeded regions, candidate form, finance results, and product preview."""
     st.set_page_config(page_title="Atlas Commerce", layout="wide")
@@ -173,13 +182,85 @@ def render_dashboard() -> None:
                     st.json(
                         item.breakdown.model_dump(mode="json")
                     )
+    
     st.divider()
     st.subheader("Before / After Recommendations")
 
-    st.info(
-        "Recommendation comparison is awaiting "
-        "the application comparison service."
-    )
+    versions = list_recommendation_versions(path, selected)
+
+    if len(versions) < 2:
+        st.info(
+            "This region needs at least two saved recommendation "
+            "versions before a comparison can be displayed."
+        )
+
+    else:
+        version_labels = {
+            version.id: (
+                f"{version.id[:8]} — {version.status.value}"
+            )
+            for version in versions
+        }
+
+        before_id = st.selectbox(
+            "Before version",
+            options=[version.id for version in versions],
+            format_func=version_labels.get,
+            key="comparison_before",
+        )
+
+        after_id = st.selectbox(
+            "After version",
+            options=[version.id for version in versions],
+            index=1,
+            format_func=version_labels.get,
+            key="comparison_after",
+        )
+
+        if before_id == after_id:
+            st.warning("Select two different versions to compare.")
+
+        elif st.button("Compare Recommendations"):
+            try:
+                comparison = compare_recommendations(
+                    path,
+                    selected,
+                    before_id,
+                    after_id,
+                )
+
+                rows = prepare_ranking_comparison(
+                    comparison.before,
+                    comparison.after,
+                )
+
+                st.write(
+                    f"**Before:** {comparison.before_version_id}"
+                )
+                st.write(
+                    f"**After:** {comparison.after_version_id}"
+                )
+
+                if rows:
+                    st.dataframe(
+                        rows,
+                        hide_index=True,
+                        use_container_width=True,
+                    )
+                else:
+                    st.info(
+                        "No eligible products were found "
+                        "for either recommendation version."
+                    )
+
+            except ValueError as error:
+                st.error(f"Comparison unavailable: {error}")
+            except sqlite3.Error:
+                st.error(
+                    "Could not load the comparison data "
+                    "from the database."
+                )
+
     
     st.divider()
     st.subheader("Candidate Approval")
