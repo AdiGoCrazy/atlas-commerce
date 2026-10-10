@@ -87,9 +87,9 @@ class TestRepository:
         assert len(active) == 2
         assert {r.id for r in active} == {"cedar", "aspen"}
 
-        candidate = repo.get_regions_by_state(RegionState.candidate)
-        assert len(candidate) == 1
-        assert candidate[0].id == "harbor"
+        awaiting_approval = repo.get_regions_by_state(RegionState.awaiting_approval)
+        assert len(awaiting_approval) == 1
+        assert awaiting_approval[0].id == "harbor"
 
     # =========================== PRODUCT CRUD ===========================
 

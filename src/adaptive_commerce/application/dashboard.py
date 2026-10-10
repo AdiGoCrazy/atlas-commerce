@@ -41,6 +41,25 @@ def bootstrap_database(path: Path) -> None:
     with closing(connect(path)) as conn:
         initialize(conn)
         load_fixtures(conn, FIXTURES)
+        conn.execute(
+            """
+            UPDATE regions
+            SET state = ?, updated_at = ?
+            WHERE state = ?
+              AND EXISTS (
+                  SELECT 1 FROM finance_assessments
+                  WHERE finance_assessments.region_id = regions.id
+                    AND finance_assessments.decision = ?
+              )
+            """,
+            (
+                RegionState.awaiting_approval.value,
+                datetime.now(timezone.utc).isoformat(),
+                RegionState.candidate.value,
+                "approve",
+            ),
+        )
+        conn.commit()
 
 
 def list_regions(path: Path) -> list[Region]:
@@ -56,12 +75,22 @@ def list_regions(path: Path) -> list[Region]:
 
 @neatlogs.span(kind="WORKFLOW", name="submit_candidate")
 def submit_candidate(path: Path, request: CandidateRequest) -> CandidateResult:
-    """Atomically save a candidate and fallback assessment; never activate it."""
+    """Save an assessment and place the region in its approval outcome state."""
     now = datetime.now(timezone.utc)
-    region = Region(id=str(uuid4()), name=request.name, state=RegionState.candidate,
-                    locale="en_US", created_at=now)
-    with trace_step("CHAIN", "finance_assessment", region_id=region.id):
+    region_id = str(uuid4())
+    with trace_step("CHAIN", "finance_assessment", region_id=region_id):
         report = assess_finance(request.assumptions)
+    region = Region(
+        id=region_id,
+        name=request.name,
+        state=(
+            RegionState.awaiting_approval
+            if report.recommendation == "approve"
+            else RegionState.rejected
+        ),
+        locale="en_US",
+        created_at=now,
+    )
     with closing(connect(path)) as conn, conn:
         conn.execute(
             "INSERT INTO regions (id, name, state, locale, created_at) VALUES (?, ?, ?, ?, ?)",
@@ -75,7 +104,10 @@ def submit_candidate(path: Path, request: CandidateRequest) -> CandidateResult:
              str(report.scenarios[0].profit), report.recommendation,
              report.model_dump_json(), None, now.isoformat()),
         )
-    logger.info("candidate_registered", extra={"region_id": region.id, "result_status": "candidate"})
+    logger.info(
+        "candidate_assessed",
+        extra={"region_id": region.id, "result_status": region.state.value},
+    )
     return CandidateResult(region=region, finance=report)
 
 

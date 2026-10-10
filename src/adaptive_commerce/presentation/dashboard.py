@@ -19,6 +19,7 @@ from adaptive_commerce.application.comparison import (
     compare_recommendations,
     list_recommendation_versions,
 )
+from adaptive_commerce.application.lifecycle import approve_region, reject_region
 
 from adaptive_commerce.presentation.view_models import (
     prepare_ranking_comparison,
@@ -28,7 +29,7 @@ def render_dashboard() -> None:
     """Render seeded regions, candidate form, finance results, and product preview."""
     st.set_page_config(page_title="Atlas Commerce", layout="wide")
     st.title("Atlas Commerce")
-    st.caption("Synthetic demo data • Financial results are simulated • Sprint 1 foundation")
+    st.caption("Synthetic demo data • Financial results are simulated • Lifecycle approval enabled")
     path = Path(os.environ.get("ATLAS_DB_PATH", "data/atlas_commerce.db"))
     try:
         bootstrap_database(path)
@@ -55,7 +56,7 @@ def render_dashboard() -> None:
             ))
             result = submit_candidate(path, request)
             st.session_state["selected_region"] = result.region.id
-            st.success("Candidate saved. It remains inactive until human approval is implemented in Sprint 2.")
+            st.success("Candidate assessed. It remains inactive until human approval.")
         except ValidationError:
             st.error("Enter a non-empty region name and valid financial assumptions.")
         except sqlite3.Error:
@@ -292,18 +293,29 @@ def render_dashboard() -> None:
         col1, col2 = st.columns(2)
 
         with col1:
-            st.button(
+            approve_clicked = st.button(
                 "Approve Candidate",
                 disabled=not approval_ui["actions_enabled"],
             )
 
         with col2:
-            st.button(
+            reject_clicked = st.button(
                 "Reject Candidate",
                 disabled=not approval_ui["actions_enabled"],
             )
 
         st.caption(approval_ui["message"])
+        if approve_clicked or reject_clicked:
+            try:
+                if approve_clicked:
+                    approve_region(path, selected)
+                else:
+                    reject_region(path, selected)
+                st.rerun()
+            except ValueError as error:
+                st.error(f"Lifecycle update unavailable: {error}")
+            except sqlite3.Error:
+                st.error("The lifecycle update could not be saved.")
 
     elif approval_ui["status"] == "Active":
         st.success(f"{selected_region.name} is already active.")

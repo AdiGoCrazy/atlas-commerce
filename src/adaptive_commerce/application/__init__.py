@@ -8,6 +8,12 @@ from .profile_updates import (
     propose_profile_update,
 )
 from .comparison import RecommendationComparison, compare_recommendations
+from .lifecycle import (
+    ALLOWED_TRANSITIONS,
+    approve_region,
+    reject_region,
+    transition_region,
+)
 
 __all__ = [
     "ProfileUpdateProposal",
@@ -17,4 +23,8 @@ __all__ = [
     "propose_profile_update",
     "RecommendationComparison",
     "compare_recommendations",
+    "ALLOWED_TRANSITIONS",
+    "approve_region",
+    "reject_region",
+    "transition_region",
 ]

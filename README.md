@@ -1,15 +1,15 @@
 # Atlas Commerce
 
-Atlas Commerce is a prototype for assessing candidate regions, ranking products for seeded active regions, and proposing bounded profile changes from synthetic signals. The demo uses fictional regions and simulated commerce results; it is not a production commerce system. Candidate approval, autonomous execution, evaluation, and rollback are not yet wired into the dashboard.
+Atlas Commerce is a prototype for assessing candidate regions, human-approving viable regions, ranking products for active regions, and proposing bounded profile changes from synthetic signals. The demo uses fictional regions and simulated commerce results; it is not a production commerce system. Autonomous execution, evaluation, and rollback are not yet wired into the dashboard.
 
 ## How it works
 
 1. An operator submits a candidate region; the app stores it and a simulated finance assessment in SQLite.
 2. The dashboard displays local base/growth/downside results and may display a validated, operator-supplied cfo.ai export. No live cfo.ai MCP read is implemented.
-3. The dashboard previews rankings for seeded regions with active profiles. It does not approve candidates or run the autonomous worker.
-4. Application services can normalize fixture signals and propose bounded profile changes, but activation/evaluation/rollback are not connected as an end-to-end UI workflow.
+3. The dashboard lets an operator approve or reject assessed regions and previews rankings for active regions.
+4. Application services can normalize fixture signals and propose bounded profile changes, but autonomous evaluation/rollback are not connected as an end-to-end UI workflow.
 
-The planned product includes human approval, autonomous updates, and rollback. Those controls are not present in the current demo.
+The planned product includes human approval, autonomous updates, and rollback. Human approval is present; autonomous updates and rollback remain planned.
 
 ## Architecture
 
@@ -68,11 +68,11 @@ uv run streamlit run app.py
 ```
 
 The current app includes validated domain models, SQLite seeding and CRUD,
-lossless Decimal storage, deterministic ranking, candidate assessment, fixture
-signal normalization, and bounded profile proposal services. The Streamlit shell
-saves candidates and simulated assessments, and previews recommendations for
-seeded active regions. Activation and autonomous worker orchestration are not
-implemented in the dashboard.
+lossless Decimal storage, deterministic ranking, candidate assessment, guarded
+region lifecycle transitions, fixture signal normalization, and bounded profile
+proposal services. The Streamlit shell saves assessments, supports explicit
+approval/rejection, and previews recommendations for active regions. Autonomous
+worker orchestration, evaluation, and rollback are not implemented in the dashboard.
 
 Run the shell with `uv run streamlit run app.py`. Set `ATLAS_DB_PATH` to use a
 different SQLite file. Tests use temporary databases and do not need credentials.
