@@ -18,7 +18,7 @@ def connect(path: str | Path) -> sqlite3.Connection:
 
 
 def initialize(conn: sqlite3.Connection) -> None:
-    """Execute the full schema DDL on the connection."""
+    """Create schema and apply additive migrations for existing demo databases."""
     conn.executescript(SCHEMA)
     conn.commit()
 

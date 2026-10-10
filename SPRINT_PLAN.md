@@ -15,11 +15,11 @@ Do not interpret the original timestamps or unchecked central table as live
 completion evidence. Current verification and named blockers are maintained in
 `docs/evidence.md`; no merge/reviewer box is checked by the implementation agent.
 
-This plan covers the first six hours of implementation, anchored to the published neatHack kickoff.
+This plan preserves the four-sprint sequence for the consolidated fork implementation requested on October 10. The published sprint window had elapsed, so its timestamps are re-baselined below; task order, acceptance criteria, ownership labels, and merge gates remain in force.
 
 - **Date:** Saturday, October 10, 2026
 - **Timezone:** India Standard Time (IST, UTC+05:30)
-- **Build window:** `2026-10-10 12:30` through `2026-10-10 18:30 IST`
+- **Re-baselined window:** `2026-10-10 21:30` through `2026-10-11 03:30 IST`
 - **Sprint duration:** Four 90-minute sprints
 - **Team:** Z, Ar, Ad, and S
 
@@ -57,7 +57,7 @@ Each task's checklist uses these two states:
 
 ## Sprint 1 — Contracts and runnable foundation
 
-**Time:** `2026-10-10 12:30–14:00 IST`  
+**Time:** `2026-10-10 21:30–23:00 IST`
 **Goal:** Agree the data/service contracts, make the app start, and prove the three partner workflows can be used. Freeze domain and service names by 12:45 so parallel work stays compatible.
 
 | Owner / checklist | Branch | Requirements and tests / acceptance |
@@ -78,7 +78,7 @@ Each task's checklist uses these two states:
 
 ## Sprint 2 — Region assessment and persisted recommendations
 
-**Time:** `2026-10-10 14:00–15:30 IST`  
+**Time:** `2026-10-10 23:00–2026-10-11 00:30 IST`
 **Goal:** Make the candidate-region approval path and before/after product screen work against durable state.
 
 | Owner / checklist | Branch | Requirements and tests / acceptance |
@@ -99,7 +99,7 @@ Each task's checklist uses these two states:
 
 ## Sprint 3 — Autonomous cycle, evaluation, and recovery
 
-**Time:** `2026-10-10 15:30–17:00 IST`  
+**Time:** `2026-10-11 00:30–02:00 IST`
 **Goal:** Run the active-region worker end to end, compare candidate recommendations, and safely reject bad updates.
 
 | Owner / checklist | Branch | Requirements and tests / acceptance |
@@ -120,7 +120,7 @@ Each task's checklist uses these two states:
 
 ## Sprint 4 — Evidence, polish, and reserved improvement
 
-**Time:** `2026-10-10 17:00–18:30 IST`  
+**Time:** `2026-10-11 02:00–03:30 IST`
 **Goal:** Make the demo repeatable, capture proof for all partners, and reserve time for one small improvement after the core flow passes.
 
 | Owner / checklist | Branch | Requirements and tests / acceptance |

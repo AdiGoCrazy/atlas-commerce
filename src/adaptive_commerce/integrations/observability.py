@@ -5,9 +5,11 @@ import os
 from contextlib import contextmanager
 from functools import lru_cache, wraps
 from inspect import signature
+from pathlib import Path
 from typing import Any, Callable, Iterator, TypeVar
 
 import neatlogs
+from dotenv import load_dotenv
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
@@ -24,6 +26,8 @@ class TraceStatus(BaseModel):
 @lru_cache(maxsize=1)
 def initialize_tracing() -> TraceStatus:
     """Configure one SDK generation with export disabled when no key exists."""
+    repository_env = Path(__file__).resolve().parents[3] / ".env"
+    load_dotenv(repository_env, override=False)
     key = os.environ.get("NEATLOGS_API_KEY")
     try:
         neatlogs.init(
@@ -46,7 +50,8 @@ def trace_step(
     region_id: str | None = None,
     cycle_id: str | None = None,
     version_id: str | None = None,
-) -> Iterator[None]:
+    attributes: dict[str, str | int | float | bool] | None = None,
+) -> Iterator[Any]:
     """Create a content-free Neatlogs span with Atlas workflow identifiers."""
     with neatlogs.trace(name, kind=kind) as span:
         for key, value in (
@@ -56,7 +61,10 @@ def trace_step(
         ):
             if value is not None:
                 span.set_attribute(f"atlas.{key}", value)
-        yield
+        if attributes:
+            for key, value in attributes.items():
+                span.set_attribute(f"atlas.{key}", value)
+        yield span
 
 
 def traced_step(

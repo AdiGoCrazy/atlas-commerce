@@ -1,15 +1,14 @@
 # Atlas Commerce
 
-Atlas Commerce is a prototype for assessing candidate regions, ranking products for seeded active regions, and proposing bounded profile changes from synthetic signals. The demo uses fictional regions and simulated commerce results; it is not a production commerce system. Candidate approval, autonomous execution, evaluation, and rollback are not yet wired into the dashboard.
+Atlas Commerce is a local operator workspace for evaluating candidate regions, approving viable markets, and safely adapting regional product recommendations from synthetic signals. Financial and evaluation outcomes are simulated. External signal providers remain replaceable adapters, and partner integrations show explicit degraded status unless live operations are verified.
 
 ## How it works
 
-1. An operator submits a candidate region; the app stores it and a simulated finance assessment in SQLite.
-2. The dashboard displays local base/growth/downside results and may display a validated, operator-supplied cfo.ai export. No live cfo.ai MCP read is implemented.
-3. The dashboard previews rankings for seeded regions with active profiles. It does not approve candidates or run the autonomous worker.
-4. Application services can normalize fixture signals and propose bounded profile changes, but activation/evaluation/rollback are not connected as an end-to-end UI workflow.
-
-The planned product includes human approval, autonomous updates, and rollback. Those controls are not present in the current demo.
+1. An operator submits a candidate region and reviews its simulated base/growth/downside assessment.
+2. The operator explicitly approves or rejects the candidate; approval creates its first durable recommendation version.
+3. The operator injects synthetic evidence or processes unseen signals through a deterministic, bounded update cycle.
+4. Candidate and active recommendations are compared on the same simulated cohort; passing updates activate transactionally, while rejected or failed cycles preserve the active version.
+5. Operators can pause, resume, archive, rollback, inspect cycle history, replay a cycle, and reset the local demo.
 
 ## Architecture
 
@@ -67,19 +66,24 @@ uv run python -m compileall src tests app.py worker.py
 uv run streamlit run app.py
 ```
 
-The current app includes validated domain models, SQLite seeding and CRUD,
-lossless Decimal storage, deterministic ranking, candidate assessment, fixture
-signal normalization, and bounded profile proposal services. The Streamlit shell
-saves candidates and simulated assessments, and previews recommendations for
-seeded active regions. Activation and autonomous worker orchestration are not
-implemented in the dashboard.
+The app includes validated domain models, SQLite seeding and CRUD, lossless
+Decimal storage, deterministic ranking, candidate approval, bounded signal
+proposals, transactional activation/rollback, same-cohort simulated evaluation,
+cycle history, replay, and region-isolated retries. The Streamlit dashboard
+provides the operator controls and before/after storefront views. A local polling
+worker is available for scheduled runs.
 
-Run the shell with `uv run streamlit run app.py`. Set `ATLAS_DB_PATH` to use a
-different SQLite file. Tests use temporary databases and do not need credentials.
-Set `NEATLOGS_API_KEY` in the process environment to configure trace export;
-without it, the UI explicitly reports local-only tracing. A configured key does
-not prove live delivery: verify separately with
-`uv run python -m neatlogs doctor --probe --json` and record the returned evidence.
+Run the shell with `uv run streamlit run app.py`. Run one worker pass with
+`uv run python worker.py --once`, or start local polling with
+`uv run python worker.py --interval 300`. Set `ATLAS_DB_PATH` to use a different
+SQLite file. Tests use temporary databases and do not need credentials.
+Put `NEATLOGS_API_KEY` in the ignored repository `.env` file or export it in the
+shell; the app loads `.env` automatically and shell values take precedence.
+Without a key, the UI reports local-only tracing. Verify authenticated delivery
+with `uv run python -m neatlogs doctor --probe --json`. To read a specific trace
+from the CLI, also set `NEATLOGS_PROJECT_ID` and `NEATLOGS_TOKEN`; these are
+readback credentials and must never be committed. See [`docs/evidence.md`](docs/evidence.md)
+for the latest probe and Atlas workflow trace evidence.
 
 cfo.ai is currently degraded, with deterministic local simulation. The model
 includes revenue, product/fulfillment costs, campaign/inference/infrastructure

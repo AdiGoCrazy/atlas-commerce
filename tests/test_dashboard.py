@@ -9,7 +9,8 @@ import pytest
 from streamlit.testing.v1 import AppTest
 
 from adaptive_commerce.application.dashboard import (
-    CandidateRequest, bootstrap_database, candidate_report, list_regions, persist_cfo_import,
+    CandidateRequest, bootstrap_database, candidate_report, count_pending_signals,
+    list_regions, persist_cfo_import,
     preview_products, submit_candidate,
 )
 from adaptive_commerce.domain import RegionState
@@ -91,9 +92,10 @@ def test_failed_assessment_write_rolls_back_candidate(tmp_path):
 
 def test_streamlit_shell_and_candidate_form(tmp_path, monkeypatch):
     monkeypatch.setenv("ATLAS_DB_PATH", str(tmp_path / "ui.db"))
-    monkeypatch.delenv("NEATLOGS_API_KEY", raising=False)
+    monkeypatch.setenv("NEATLOGS_API_KEY", "")
     app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app.py"))
     app.run(timeout=15)
+    app.radio[0].set_value("Region operations").run(timeout=15)
     assert not app.exception
     assert len(app.selectbox[0].options) == 3
     app.text_input[0].set_value("Demo Coast")
@@ -101,8 +103,8 @@ def test_streamlit_shell_and_candidate_form(tmp_path, monkeypatch):
     assert not app.exception
     assert len(app.selectbox[0].options) == 4
     assert any("Candidate saved" in item.value for item in app.success)
-    assert any("local fallback" in item.value for item in app.warning)
-    assert len(app.dataframe) == 1
+    assert any("Local financial simulation" in item.value for item in app.caption)
+    assert len(app.dataframe) >= 1
     path = tmp_path / "ui.db"
     assert next(r for r in list_regions(path) if r.name == "Demo Coast").state == RegionState.candidate
 
@@ -110,10 +112,54 @@ def test_streamlit_shell_and_candidate_form(tmp_path, monkeypatch):
 def test_empty_candidate_name_does_not_write(tmp_path, monkeypatch):
     path = tmp_path / "invalid.db"
     monkeypatch.setenv("ATLAS_DB_PATH", str(path))
-    monkeypatch.delenv("NEATLOGS_API_KEY", raising=False)
+    monkeypatch.setenv("NEATLOGS_API_KEY", "")
     app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app.py"))
     app.run(timeout=15)
+    app.radio[0].set_value("Region operations").run(timeout=15)
     app.button[0].click().run(timeout=15)
     assert not app.exception
     assert app.error
     assert len(list_regions(path)) == 3
+
+
+def test_operator_can_assess_and_approve_candidate_in_dashboard(tmp_path, monkeypatch):
+    path = tmp_path / "approval-ui.db"
+    monkeypatch.setenv("ATLAS_DB_PATH", str(path))
+    monkeypatch.setenv("NEATLOGS_API_KEY", "")
+    app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app.py"))
+    app.run(timeout=15)
+    app.radio[0].set_value("Region operations").run(timeout=15)
+    app.text_input[0].set_value("Approved Coast")
+    app.button[0].click().run(timeout=15)
+    assert not app.exception
+    approve = next(button for button in app.button if button.key == "approve_region")
+    approve.click().run(timeout=15)
+    assert not app.exception
+    assert any("approved and activated" in item.value for item in app.success)
+    approved = next(region for region in list_regions(path) if region.name == "Approved Coast")
+    assert approved.state is RegionState.active
+
+
+def test_dashboard_cycle_persists_and_keeps_operator_section_selected(tmp_path, monkeypatch):
+    path = tmp_path / "cycle-ui.db"
+    monkeypatch.setenv("ATLAS_DB_PATH", str(path))
+    monkeypatch.setenv("NEATLOGS_API_KEY", "")
+    app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app.py"))
+    app.run(timeout=15)
+    app.radio[0].set_value("Region operations").run(timeout=15)
+    assert app.radio[0].value == "Region operations"
+    assert app.selectbox[0].value == "cedar"
+    assert count_pending_signals(path, "cedar") == 1
+
+    next(button for button in app.button if button.key == "run_cycle").click().run(timeout=15)
+
+    assert not app.exception
+    assert app.radio[0].value == "Region operations"
+    assert any("Recommendations updated" in item.value for item in app.success)
+    assert count_pending_signals(path, "cedar") == 0
+    assert next(button for button in app.button if button.key == "run_cycle").disabled
+    with connect(path) as conn:
+        row = conn.execute(
+            "SELECT status FROM update_cycles WHERE region_id = 'cedar' ORDER BY created_at DESC LIMIT 1"
+        ).fetchone()
+    assert row["status"] == "activated"

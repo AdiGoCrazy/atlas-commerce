@@ -89,7 +89,7 @@ def test_cfo_export_accepts_export_field_names_and_rejects_malformed_finance():
 
 
 def test_neatlogs_initializes_once_without_export_when_key_missing(monkeypatch):
-    monkeypatch.delenv("NEATLOGS_API_KEY", raising=False)
+    monkeypatch.setenv("NEATLOGS_API_KEY", "")
     calls = []
     monkeypatch.setattr(observability.neatlogs, "init", lambda **kwargs: calls.append(kwargs))
     observability.initialize_tracing.cache_clear()

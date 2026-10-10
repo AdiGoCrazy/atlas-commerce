@@ -127,7 +127,8 @@ Do not begin an improvement until the core end-to-end scenario is reproducible.
 - use real cfo.ai model variables and scheduled scenarios;
 - add richer offline recommendation evaluation;
 - add inventory and product availability feeds;
-- add background scheduling with a durable job store.
+- replace the local polling scheduler with a durable job store when the deployment model requires it.
+- add real cfo.ai MCP reads and verified neatlogs trace retrieval once workspace access is configured.
 
 ### Later
 

@@ -15,3 +15,8 @@ __all__ = [
     "normalize_fixture_record",
     "normalize_fixture_records",
 ]
+"""Signal extraction and source adapters."""
+
+from .source import PersistedSignalSource, SignalSource
+
+__all__ = ["PersistedSignalSource", "SignalSource"]

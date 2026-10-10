@@ -1,4 +1,4 @@
-"""Sprint 1 dashboard services backed by validated SQLite state."""
+"""Application services for candidates, finance reports, and storefront views."""
 
 import json
 import logging
@@ -13,8 +13,10 @@ from pydantic import BaseModel, ConfigDict, Field
 from adaptive_commerce.domain import Product, Region, RegionProfile, RegionState
 from adaptive_commerce.integrations.finance import CfoScenarioImport, FinanceInputs, FinanceReport, assess_finance
 from adaptive_commerce.integrations.observability import trace_step
-from adaptive_commerce.persistence import connect, initialize, load_fixtures
-from adaptive_commerce.recommender import RankingProduct, RankingProfile, RankedProduct, rank_products
+from adaptive_commerce.persistence import Repository, connect, initialize, load_fixtures
+from adaptive_commerce.recommender import (
+    RankingEvent, RankingPolicy, RankingProduct, RankingProfile, RankedProduct, rank_products,
+)
 
 logger = logging.getLogger(__name__)
 FIXTURES = Path(__file__).resolve().parents[3] / "data" / "fixtures"
@@ -95,6 +97,12 @@ def candidate_report(path: Path, region_id: str) -> FinanceReport | None:
     return None
 
 
+def count_pending_signals(path: Path, region_id: str) -> int:
+    """Return how many new signals remain available for a regional cycle."""
+    with closing(connect(path)) as conn:
+        return Repository(conn).count_unprocessed_signals(region_id)
+
+
 def persist_cfo_import(path: Path, imported: CfoScenarioImport) -> bool:
     """Attach validated provider provenance to the region's latest assessment."""
     with closing(connect(path)) as conn, conn:
@@ -130,8 +138,40 @@ def preview_products(path: Path, region_id: str) -> list[RankedProduct]:
             payload = dict(row)
             payload["tags"] = json.loads(payload["tags"])
             products.append(RankingProduct.model_validate(Product.model_validate(payload)))
+        from adaptive_commerce.persistence import Repository
+        repository = Repository(conn)
+        policy = repository.get_ranking_policy(region_id)
+        events = repository.get_active_events(region_id, datetime.now(timezone.utc).isoformat())
     with trace_step(
         "CHAIN", "recommendation_ranking", region_id=profile.region_id,
         version_id=profile.active_version_id,
     ):
-        return rank_products(products, profile, now=datetime.now(timezone.utc))
+        return rank_products(
+            products, profile, now=datetime.now(timezone.utc), policy=RankingPolicy.model_validate(policy),
+            events=[RankingEvent.model_validate(event) for event in events],
+        )
+
+
+def list_region_cycles(path: Path, region_id: str):
+    """Return recent autonomous cycles for the selected region."""
+    from adaptive_commerce.persistence import Repository
+    with closing(connect(path)) as conn:
+        return Repository(conn).list_update_cycles(region_id)
+
+
+def list_region_actions(path: Path, region_id: str) -> list[dict]:
+    """Return recent operator controls for the selected region."""
+    from adaptive_commerce.persistence import Repository
+    with closing(connect(path)) as conn:
+        return Repository(conn).list_operator_actions(region_id)
+
+
+def get_product_catalog(path: Path) -> dict[str, Product]:
+    """Load the validated local product catalog for presentation labels."""
+    with closing(connect(path)) as conn:
+        result = {}
+        for row in conn.execute("SELECT * FROM products ORDER BY name"):
+            payload = dict(row)
+            payload["tags"] = json.loads(payload["tags"])
+            result[payload["id"]] = Product.model_validate(payload)
+        return result

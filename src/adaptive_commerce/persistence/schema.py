@@ -112,6 +112,12 @@ CREATE TABLE IF NOT EXISTS update_cycles (
     finished_at TEXT
 );
 
+-- Signal consumption is persistence metadata, not part of the Signal contract.
+CREATE TABLE IF NOT EXISTS consumed_signals (
+    signal_id TEXT PRIMARY KEY REFERENCES signals(id) ON DELETE CASCADE,
+    cycle_id TEXT NOT NULL REFERENCES update_cycles(id) ON DELETE CASCADE
+);
+
 -- Evidence references table
 CREATE TABLE IF NOT EXISTS evidence_references (
     id TEXT PRIMARY KEY,
@@ -131,6 +137,15 @@ CREATE TABLE IF NOT EXISTS simulated_events (
     processed INTEGER NOT NULL DEFAULT 0
 );
 
+-- Human operations are retained as a small audit trail for the local product.
+CREATE TABLE IF NOT EXISTS operator_actions (
+    id TEXT PRIMARY KEY,
+    region_id TEXT NOT NULL REFERENCES regions(id) ON DELETE CASCADE,
+    action TEXT NOT NULL,
+    detail TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL
+);
+
 -- Indexes for common query patterns
 CREATE INDEX IF NOT EXISTS idx_signals_region ON signals(region_id);
 CREATE INDEX IF NOT EXISTS idx_signals_source ON signals(source_id);
@@ -138,4 +153,6 @@ CREATE INDEX IF NOT EXISTS idx_events_region_time ON event_windows(region_id, st
 CREATE INDEX IF NOT EXISTS idx_finance_region ON finance_assessments(region_id);
 CREATE INDEX IF NOT EXISTS idx_versions_region ON recommendation_versions(region_id);
 CREATE INDEX IF NOT EXISTS idx_cycles_region ON update_cycles(region_id);
+CREATE INDEX IF NOT EXISTS idx_actions_region ON operator_actions(region_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_consumed_cycle ON consumed_signals(cycle_id);
 """
