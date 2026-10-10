@@ -7,6 +7,7 @@ from .profile_updates import (
     UpdatePolicy,
     propose_profile_update,
 )
+from .comparison import RecommendationComparison, compare_recommendations
 
 __all__ = [
     "ProfileUpdateProposal",
@@ -14,4 +15,6 @@ __all__ = [
     "SignalRejection",
     "UpdatePolicy",
     "propose_profile_update",
+    "RecommendationComparison",
+    "compare_recommendations",
 ]
