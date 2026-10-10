@@ -1,0 +1,9 @@
+[
+  {
+    "id": "festival-2026-oct",
+    "region_id": "cedar",
+    "starts_at": "2026-10-10T00:00:00+00:00",
+    "expires_at": "2026-10-17T23:59:59+00:00",
+    "boosts": {"festival": "4", "electronics": "4"}
+  }
+]
