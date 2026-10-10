@@ -80,7 +80,7 @@ class TestPersistence:
         assert counts.products == 8
         assert counts.regions == 3
         assert counts.region_profiles == 2  # only active regions have profiles
-        assert counts.recommendation_versions == 2
+        assert counts.recommendation_versions == 3
         assert counts.event_windows == 1
         assert counts.finance_assessments == 1
         assert counts.signals == 1
@@ -90,7 +90,7 @@ class TestPersistence:
         assert _count_rows(empty_db, "products") == 8
         assert _count_rows(empty_db, "regions") == 3
         assert _count_rows(empty_db, "region_profiles") == 2
-        assert _count_rows(empty_db, "recommendation_versions") == 2
+        assert _count_rows(empty_db, "recommendation_versions") == 3
         assert _count_rows(empty_db, "event_windows") == 1
         assert _count_rows(empty_db, "finance_assessments") == 1
         assert _count_rows(empty_db, "signals") == 1
@@ -150,11 +150,12 @@ class TestPersistence:
         # Recommendation versions - parse JSON fields
         rows = empty_db.execute("SELECT * FROM recommendation_versions").fetchall()
         versions = [RecommendationVersion.model_validate(_parse_json_fields(dict(row), ["weights"])) for row in rows]
-        assert len(versions) == 2
-        for v in versions:
-            assert v.status == VersionStatus.active
-            assert v.parent_id is None
-            assert v.weights.get("outdoor") == Decimal("3")
+        assert len(versions) == 3
+        assert sum(v.status is VersionStatus.active for v in versions) == 2
+        assert sum(v.status is VersionStatus.candidate for v in versions) == 1
+        candidate = next(v for v in versions if v.status is VersionStatus.candidate)
+        assert candidate.parent_id == "v-cedar-1"
+        assert candidate.weights["festival"] == Decimal("5")
 
         # Event windows - parse JSON fields
         rows = empty_db.execute("SELECT * FROM event_windows").fetchall()
