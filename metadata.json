@@ -1,0 +1,45 @@
+{
+  "cli_version": "0.11.4",
+  "checkpoint_id": "01M4JKX5Z6EGZM56MQTT2BCC7P",
+  "strategy": "manual-commit",
+  "branch": "feat/s1-ad-ranking-core",
+  "checkpoints_count": 5,
+  "files_touched": [
+    ".github/workflows/tests.yml",
+    "README.md",
+    "SPRINT_PLAN.md",
+    "app.py",
+    "data/fixtures/finance_assessments.json",
+    "docs/evidence.md",
+    "pyproject.toml",
+    "src/adaptive_commerce/application/dashboard.py",
+    "src/adaptive_commerce/integrations/finance.py",
+    "src/adaptive_commerce/integrations/observability.py",
+    "src/adaptive_commerce/persistence/database.py",
+    "src/adaptive_commerce/persistence/seed.py",
+    "src/adaptive_commerce/presentation/dashboard.py",
+    "src/adaptive_commerce/recommender/README.md",
+    "src/adaptive_commerce/recommender/SPRINT1_PR.md",
+    "tests/test_dashboard.py",
+    "tests/test_finance.py",
+    "tests/test_foundation_recovery.py",
+    "tests/test_ranking_domain_compatibility.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 127314,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 3349376,
+    "output_tokens": 21944,
+    "api_call_count": 50,
+    "subagent_tokens_complete": true
+  }
+}

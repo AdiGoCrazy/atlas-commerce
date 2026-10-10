@@ -1,0 +1,17 @@
+what do you see in this repo
+
+---
+
+run the tests
+
+---
+
+what is the next available step in this?
+
+---
+
+pull the latest changes. tell me what you see
+
+---
+
+run the new tests. then check if the proper code and tests have been implemented as per the others's codes. then check if sprint one is completed or not. if not, do the remaining tasks that complete sprint one and review everything and check if we can safely move to sprint 2

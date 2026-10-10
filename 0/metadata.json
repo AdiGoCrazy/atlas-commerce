@@ -1,0 +1,80 @@
+{
+  "cli_version": "0.11.4",
+  "checkpoint_id": "01M4JKX5Z6EGZM56MQTT2BCC7P",
+  "session_id": "01a12508-74ff-72d1-96e6-510dfb8d9def",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-10T09:57:02.259120543Z",
+  "branch": "feat/s1-ad-ranking-core",
+  "checkpoints_count": 5,
+  "save_step_count": 1,
+  "files_touched": [
+    ".github/workflows/tests.yml",
+    "README.md",
+    "SPRINT_PLAN.md",
+    "app.py",
+    "data/fixtures/finance_assessments.json",
+    "docs/evidence.md",
+    "pyproject.toml",
+    "src/adaptive_commerce/application/dashboard.py",
+    "src/adaptive_commerce/integrations/finance.py",
+    "src/adaptive_commerce/integrations/observability.py",
+    "src/adaptive_commerce/persistence/database.py",
+    "src/adaptive_commerce/persistence/seed.py",
+    "src/adaptive_commerce/presentation/dashboard.py",
+    "src/adaptive_commerce/recommender/README.md",
+    "src/adaptive_commerce/recommender/SPRINT1_PR.md",
+    "tests/test_dashboard.py",
+    "tests/test_finance.py",
+    "tests/test_foundation_recovery.py",
+    "tests/test_ranking_domain_compatibility.py"
+  ],
+  "agent": "Codex",
+  "model": "gpt-6-astra",
+  "turn_id": "134e1274b58d",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 127314,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 3349376,
+    "output_tokens": 21944,
+    "api_call_count": 50,
+    "subagent_tokens_complete": true
+  },
+  "session_metrics": {
+    "turn_count": 5
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-10-10T09:57:02.225769003Z",
+    "agent_lines": 487,
+    "agent_removed": 3,
+    "human_added": 1312,
+    "human_modified": 26,
+    "human_removed": 0,
+    "total_committed": 1825,
+    "total_lines_changed": 1829,
+    "agent_percentage": 26.790595954073265,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 88,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".codex/hooks.json": 88
+      }
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 88,
+      "user_lines_removed": 0,
+      "agent_lines_added": 124,
+      "agent_lines_removed": 3,
+      "user_added_per_file": {
+        ".codex/hooks.json": 88
+      }
+    }
+  ]
+}
