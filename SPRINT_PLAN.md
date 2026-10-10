@@ -2,6 +2,19 @@
 
 ## Schedule and working rules
 
+### Recovery pass — October 10, 2026, after the published Sprint 1 window
+
+The user explicitly authorized Ad's coding agent to complete the remaining Z,
+Ar, and S Sprint 1 work after the foundation review. This recovery pass stays
+on the existing `feat/s1-ad-ranking-core` branch / PR #3 to preserve its pending
+public API changes. This is an explicit cross-owner completion exception;
+normal ownership resumes for Sprint 2. No other task branches are overwritten.
+The original four-sprint sequence remains unchanged; subsequent sprint start
+times must be re-baselined by the team after this recovery PR is reviewed.
+Do not interpret the original timestamps or unchecked central table as live
+completion evidence. Current verification and named blockers are maintained in
+`docs/evidence.md`; no merge/reviewer box is checked by the implementation agent.
+
 This plan covers the first six hours of implementation, anchored to the published neatHack kickoff.
 
 - **Date:** Saturday, October 10, 2026

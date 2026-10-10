@@ -3,17 +3,21 @@
     "id": "fa-harbor-1",
     "region_id": "harbor",
     "viability_score": "0.72",
-    "projected_profit": "125000.00",
+    "projected_profit": "12500.00",
     "decision": "approve",
     "assumptions": {
       "monthly_traffic": "50000",
+      "simulated": true,
+      "provider_status": "degraded",
+      "product_cost_per_order": "45.00",
+      "infrastructure_cost_monthly": "4500.00",
       "conversion_rate": "0.025",
       "avg_order_value": "85.00",
       "fulfillment_cost_per_order": "12.00",
       "campaign_cost_monthly": "15000.00",
       "inference_cost_monthly": "3000.00"
     },
-    "cfo_reference": "cfo://workspace/atlas-commerce/model/regional-expansion/scenario/harbor-base",
+    "cfo_reference": null,
     "created_at": "2026-10-10T08:30:00+00:00"
   }
 ]

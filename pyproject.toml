@@ -3,7 +3,7 @@ name = "atlas-commerce"
 version = "0.1.0"
 description = "Atlas Commerce regional recommendation prototype"
 requires-python = ">=3.11,<3.13"
-dependencies = ["pydantic>=2.0,<3", "neatlogs>=0.1"]
+dependencies = ["pydantic>=2.0,<3", "neatlogs>=1.4.26,<2", "streamlit>=1.40,<2"]
 
 [dependency-groups]
 dev = ["pytest>=8,<10"]

@@ -60,12 +60,59 @@ All catalog records and region IDs in the tests are synthetic.
 
 ## Integration limits
 
-Entire CLI and `entire-graph` are unavailable in this environment, so no Entire
-checkpoint is claimed. Repository instructions and planning documents were read
-directly. S owns setup and live partner evidence. cfo.ai and dashboard wiring
+Entire CLI is now installed and enabled for Codex. During the Sprint 1 review,
+`entire status` confirmed repository integration, but `entire checkpoint list`
+reported no local checkpoints and could not reach the checkpoint remote.
+`entire-graph` is unavailable. No checkpoint or graph evidence is claimed.
+Repository instructions and planning documents were read directly.
+S owns setup and live partner evidence. cfo.ai and dashboard wiring
 are not part of Ad's Sprint 1 ranker. The full dashboard/manual worker demo
 requires the other owners' implementations and later sprint work.
 
 The root `pyproject.toml` and `uv.lock` provide the minimal runnable dependency
 baseline for this first code branch. Other owners should extend it when their
 components merge. Empty directory placeholders reserve the layout in BUILD_PLAN.
+
+## Initial shared foundation review — October 10, 2026
+
+The findings below describe the review before the user authorized cross-owner
+recovery. Persistence precision/rollback and the missing dashboard have since
+been addressed. See `docs/evidence.md` for current recovery checks and remaining
+partner blockers; this historical review is not the current completion status.
+
+Reviewed shared main `95d1142` (Z's domain/bootstrap PR #4): all 56 existing
+tests passed in an isolated checkout. Merged that foundation into Ad's assigned
+branch and added `tests/test_ranking_domain_compatibility.py`. The resulting
+58 tests pass; compilation and `git diff --check` pass as well.
+
+The compatibility tests seed SQLite, validate rows into Z's domain models,
+and map them through the public ranking projections. Cedar's shared-fixture
+top five changes from `bottle, boots, tent, pack, poles` to
+`lights, bottle, charger, boots, pouch` during its event. At expiry it returns
+to baseline. Aspen stays unchanged; explicit exclusions and stock restrictions
+still apply. These lists differ from the unit fixture above because shared
+products have different prices, costs, and popularity. The event is already
+seeded; this does not demonstrate signal extraction or autonomous proposals.
+
+Sprint 1 is not complete based on the reviewed repository and GitHub PRs:
+
+- Ad: ranking acceptance passes; public exports and compatibility regression
+  coverage require review through the existing PR #3.
+- Z: specified bootstrap/model tests pass. Follow-up: Decimal serialization in
+  `persistence/database.py` converts values to float. For example,
+  `0.1234567890123456789012345678` becomes `0.12345678901234568`; the existing
+  exactness test only uses whole-number fixture values. Seed loading also lacks
+  an explicit rollback path on validation failure.
+- Ar: no dashboard entry point, presentation implementation, view-model tests,
+  or dashboard PR is present. Streamlit is not in project dependencies.
+- S: merged PR #2 adds only the root README. No integration implementation or
+  `docs/evidence.md` is present. Live neatlogs and cfo.ai evidence is unverified.
+  The Harbor fixture's `cfo://...` reference is synthetic and must not be
+  displayed as a verified provider result. Entire status is as described above.
+- GitHub: PRs #1, #2, and #4 are merged; #3 is open. Their check rollups are
+  empty, so local test success does not establish passing GitHub checks.
+
+Remaining teammate-owned work requires those owners or an explicit ownership
+change. S must independently review the PRs, record evidence/blockers, update
+the central checklist, and announce the shared baseline before Sprint 2.
+No central completion boxes were changed by this review.

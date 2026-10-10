@@ -69,7 +69,34 @@ uv run python -m compileall src tests app.py worker.py
 uv run streamlit run app.py
 ```
 
-The project is under active implementation. The current Sprint 1 code includes a deterministic recommender and its focused tests; the complete dashboard, lifecycle, worker, persistence, and integrations are still being built. See [`SPRINT_PLAN.md`](SPRINT_PLAN.md) for current task branches, ownership, acceptance checks, and merge order. Other product and engineering details live in [`PRODUCT.md`](PRODUCT.md), [`ARCHITECTURE.md`](ARCHITECTURE.md), [`INTEGRATIONS.md`](INTEGRATIONS.md), [`BUILD_PLAN.md`](BUILD_PLAN.md), and [`DEMO_AND_TESTS.md`](DEMO_AND_TESTS.md).
+The Sprint 1 recovery code includes shared domain models, atomic SQLite seeding,
+lossless Decimal storage, a deterministic recommender, and a Streamlit shell.
+The shell saves candidate regions and simulated financial assessments, displays
+three financial scenarios, and previews seeded active-region recommendations.
+It never activates candidates. Approval, signal normalization, bounded updates,
+and the autonomous worker remain later sprint work.
+
+Run the shell with `uv run streamlit run app.py`. Set `ATLAS_DB_PATH` to use a
+different SQLite file. Tests use temporary databases and do not need credentials.
+Set `NEATLOGS_API_KEY` in the process environment to configure trace export;
+without it, the UI explicitly reports local-only tracing. A configured key does
+not prove live delivery: verify separately with
+`uv run python -m neatlogs doctor --probe --json` and record the returned evidence.
+
+cfo.ai is currently degraded, with deterministic local simulation. The model
+includes revenue, product/fulfillment costs, campaign/inference/infrastructure
+costs, margin, campaign ROI, cash runway, and opportunity cost. Base/growth/downside
+vary traffic by 1 / 1.25 / 0.75. Set `CFO_SCENARIO_PATH` to an operator-supplied
+JSON export matching `CfoScenarioImport` to inspect provider outputs/provenance;
+imported data is explicitly unverified and does not replace the local decision.
+No live cfo.ai success is claimed. The UI shows all financial assumptions.
+
+See [`docs/evidence.md`](docs/evidence.md) for actual checks and integration
+blockers and [`SPRINT_PLAN.md`](SPRINT_PLAN.md) for the recovery ownership
+exception, task branches, and merge gates. Product details remain in
+[`PRODUCT.md`](PRODUCT.md), [`ARCHITECTURE.md`](ARCHITECTURE.md),
+[`INTEGRATIONS.md`](INTEGRATIONS.md), [`BUILD_PLAN.md`](BUILD_PLAN.md), and
+[`DEMO_AND_TESTS.md`](DEMO_AND_TESTS.md).
 
 ## Demo acceptance scenarios
 

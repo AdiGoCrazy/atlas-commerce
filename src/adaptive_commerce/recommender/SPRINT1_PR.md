@@ -1,5 +1,10 @@
 ## Sprint task
 
+Historical ranker-only handoff. PR #3 now includes the user-authorized Sprint 1
+recovery pass across ownership areas. Current behavior and verification are in
+the root README and `docs/evidence.md`; the original evidence below applies to
+the first ranker implementation only. Central/reviewer checkboxes remain open.
+
 - Sprint number: 1
 - Task owner: Ad
 - Task title: deterministic ranker

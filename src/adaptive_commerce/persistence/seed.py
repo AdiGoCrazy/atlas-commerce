@@ -1,6 +1,7 @@
 """Fixture seed loader for Atlas Commerce."""
 
 import json
+import logging
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime
@@ -22,6 +23,8 @@ from adaptive_commerce.domain import (
 from adaptive_commerce.domain.enums import FinanceDecision, RegionState, UpdateCycleStatus, VersionStatus
 
 from .database import _json_dumps, connect, initialize
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -48,7 +51,9 @@ def _load_json(fixtures_dir: Path, filename: str) -> list[dict[str, Any]]:
         return []
     with path.open() as f:
         data = json.load(f)
-    return data if isinstance(data, list) else []
+    if not isinstance(data, list) or any(not isinstance(item, dict) for item in data):
+        raise ValueError(f"{filename} must contain an array of objects")
+    return data
 
 
 def _insert_region(conn: sqlite3.Connection, r: Region) -> sqlite3.Cursor:
@@ -80,7 +85,7 @@ def _insert_region_profile(conn: sqlite3.Connection, p: RegionProfile) -> sqlite
             p.region_id,
             _json_dumps(p.weights),
             p.active_version_id,
-            _json_dumps(p.max_weight_delta),
+            str(p.max_weight_delta),
         ),
     )
     return cur
@@ -96,11 +101,11 @@ def _insert_product(conn: sqlite3.Connection, p: Product) -> sqlite3.Cursor:
             p.id,
             p.name,
             _json_dumps(p.tags),
-            _json_dumps(p.price),
-            _json_dumps(p.cost),
+            str(p.price),
+            str(p.cost),
             1 if p.in_stock else 0,
             1 if p.eligible else 0,
-            _json_dumps(p.base_popularity),
+            str(p.base_popularity),
         ),
     )
     return cur
@@ -136,7 +141,7 @@ def _insert_signal(conn: sqlite3.Connection, s: Signal) -> sqlite3.Cursor:
             s.source_id,
             s.source_type.value,
             _json_dumps(s.topics),
-            _json_dumps(s.confidence),
+            str(s.confidence),
             s.observed_at.isoformat(),
             s.evidence_excerpt,
             s.language,
@@ -172,8 +177,8 @@ def _insert_finance_assessment(conn: sqlite3.Connection, a: FinanceAssessment) -
         (
             a.id,
             a.region_id,
-            _json_dumps(a.viability_score),
-            _json_dumps(a.projected_profit),
+            str(a.viability_score),
+            str(a.projected_profit),
             a.decision.value,
             _json_dumps(a.assumptions),
             a.cfo_reference,
@@ -223,7 +228,20 @@ def _insert_update_cycle(conn: sqlite3.Connection, c: UpdateCycle) -> sqlite3.Cu
 
 
 def load_fixtures(conn: sqlite3.Connection, fixtures_dir: Path) -> SeedCounts:
-    """Load all fixture files into the database. Idempotent via INSERT OR IGNORE."""
+    """Seed atomically, preserving a caller's enclosing transaction on failure."""
+    conn.execute("SAVEPOINT seed_fixtures")
+    try:
+        counts = _load_fixtures(conn, fixtures_dir)
+    except Exception:
+        conn.execute("ROLLBACK TO SAVEPOINT seed_fixtures")
+        conn.execute("RELEASE SAVEPOINT seed_fixtures")
+        raise
+    conn.execute("RELEASE SAVEPOINT seed_fixtures")
+    logger.info("fixtures_loaded", extra={"result_status": "success", "counts": counts.__dict__})
+    return counts
+
+
+def _load_fixtures(conn: sqlite3.Connection, fixtures_dir: Path) -> SeedCounts:
     counts = SeedCounts()
 
     # Products
@@ -304,7 +322,6 @@ def load_fixtures(conn: sqlite3.Connection, fixtures_dir: Path) -> SeedCounts:
         if cur.rowcount > 0:
             counts.update_cycles += 1
 
-    conn.commit()
     return counts
 
 
@@ -321,6 +338,5 @@ if __name__ == "__main__":
     counts = load_fixtures(conn, fixtures_dir)
     conn.close()
 
-    print(f"Seeded database at {db_path}:")
-    for field in counts.__dataclass_fields__:
-        print(f"  {field}: {getattr(counts, field)}")
+    logging.basicConfig(level=logging.INFO)
+    logger.info("database_seeded", extra={"database_path": str(db_path), "counts": counts.__dict__})
