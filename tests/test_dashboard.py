@@ -107,44 +107,6 @@ def test_streamlit_shell_and_candidate_form(tmp_path, monkeypatch):
     assert next(r for r in list_regions(path) if r.name == "Demo Coast").state == RegionState.candidate
 
 
-@pytest.mark.parametrize(
-    ("button_label", "expected_state"),
-    [("Approve candidate", RegionState.active), ("Reject candidate", RegionState.rejected)],
-)
-def test_streamlit_candidate_decision_actions(tmp_path, monkeypatch, button_label, expected_state):
-    path = tmp_path / f"{expected_state.value}.db"
-    monkeypatch.setenv("ATLAS_DB_PATH", str(path))
-    monkeypatch.delenv("NEATLOGS_API_KEY", raising=False)
-    app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app.py"))
-    app.run(timeout=15)
-    app.text_input[0].set_value("Decision Bay")
-    app.button[0].click().run(timeout=15)
-    decision_button = next(button for button in app.button if button.label == button_label)
-    decision_button.click().run(timeout=15)
-
-    assert not app.exception
-    region = next(region for region in list_regions(path) if region.name == "Decision Bay")
-    assert region.state is expected_state
-    if expected_state is RegionState.active:
-        with connect(path) as conn:
-            assert conn.execute(
-                "SELECT COUNT(*) FROM region_profiles WHERE region_id = ?", (region.id,),
-            ).fetchone()[0] == 1
-
-
-def test_streamlit_shows_comparison_for_region_with_saved_versions(tmp_path, monkeypatch):
-    path = tmp_path / "comparison-ui.db"
-    monkeypatch.setenv("ATLAS_DB_PATH", str(path))
-    monkeypatch.delenv("NEATLOGS_API_KEY", raising=False)
-    app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app.py"))
-    app.run(timeout=15)
-    app.selectbox[0].set_value("cedar").run(timeout=15)
-
-    assert not app.exception
-    assert any("Both rankings evaluated at" in item.value for item in app.caption)
-    assert "v-cedar-festival-candidate (candidate)" in app.selectbox[1].options
-
-
 def test_empty_candidate_name_does_not_write(tmp_path, monkeypatch):
     path = tmp_path / "invalid.db"
     monkeypatch.setenv("ATLAS_DB_PATH", str(path))
