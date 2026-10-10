@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.11.4",
+  "checkpoint_id": "01M4JV1A5GMBKXJVE4TWEHYS9J",
+  "strategy": "manual-commit",
+  "branch": "feat/s2-ad-signal-updates",
+  "checkpoints_count": 11,
+  "files_touched": [
+    "src/adaptive_commerce/agents/README.md",
+    "src/adaptive_commerce/agents/__init__.py",
+    "src/adaptive_commerce/agents/signals.py",
+    "src/adaptive_commerce/application/__init__.py",
+    "src/adaptive_commerce/application/profile_updates.py",
+    "tests/test_signal_updates.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 402442,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 8945536,
+    "output_tokens": 30362,
+    "api_call_count": 77
+  }
+}

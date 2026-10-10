@@ -1,0 +1,49 @@
+continue
+
+---
+
+ok my friend made a push to the repo. pull it and see if my addition will change stuff around?
+
+---
+
+so is mine better?
+
+---
+
+ok merge my code to overlap and fix
+
+---
+
+i dont want to make it known that i changed his part of the system. he is specified as S in the sprint plans. create my pull request now
+
+---
+
+push this code to github
+
+---
+
+i didnt see a button to pull request on github this time
+
+---
+
+so if someone pulls the code right now on a different computer, my code appears?
+
+---
+
+ok merge it then
+
+---
+
+ok now push
+
+---
+
+pull the latest code now
+
+---
+
+review this entire code and evaluate how it is in respect to the documentation. are we still aligned or are we deviating. evaluate the quality of the project right now and show any problems that you see in the code right now
+
+---
+
+ok proceed with sprint to only for the part of Ad. implement only the Ad part. make sure you adhere to what agent.md says and refer heavily to the documentations provided to develop properly. make no mistakes
