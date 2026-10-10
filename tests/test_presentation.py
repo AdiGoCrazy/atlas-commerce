@@ -44,3 +44,65 @@ def test_no_finance_result():
     assert finance_empty_message(None) == (
         "No finance assessment available yet."
     )
+
+
+from decimal import Decimal
+
+from adaptive_commerce.presentation.view_models import (
+    prepare_ranking_comparison,
+)
+from adaptive_commerce.recommender.contracts import (
+    RankedProduct,
+    ScoreBreakdown,
+)
+
+
+def make_ranked(product_id, rank, score):
+    return RankedProduct(
+        product_id=product_id,
+        rank=rank,
+        score=Decimal(score),
+        breakdown=ScoreBreakdown(
+            base_popularity=Decimal(score),
+            regional_interest_match=Decimal("0"),
+            temporary_event_boost=Decimal("0"),
+            margin_bonus=Decimal("0"),
+            policy_penalty=Decimal("0"),
+            interest_by_tag={},
+            event_by_id={},
+        ),
+    )
+
+
+def test_ranking_comparison_score_change():
+    before = [make_ranked("bottle", 1, "6.5")]
+    after = [make_ranked("bottle", 2, "7.0")]
+
+    rows = prepare_ranking_comparison(before, after)
+
+    assert len(rows) == 1
+    assert rows[0]["Before rank"] == 1
+    assert rows[0]["After rank"] == 2
+    assert rows[0]["Score change"] == Decimal("0.5")
+
+
+def test_ranking_comparison_new_product():
+    before = []
+    after = [make_ranked("boots", 1, "5.0")]
+
+    rows = prepare_ranking_comparison(before, after)
+
+    assert rows[0]["Before rank"] is None
+    assert rows[0]["After rank"] == 1
+    assert rows[0]["Score change"] is None
+
+
+def test_ranking_comparison_removed_product():
+    before = [make_ranked("tent", 1, "4.0")]
+    after = []
+
+    rows = prepare_ranking_comparison(before, after)
+
+    assert rows[0]["Before rank"] == 1
+    assert rows[0]["After rank"] is None
+    assert rows[0]["Score change"] is None

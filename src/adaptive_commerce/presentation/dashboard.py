@@ -84,7 +84,13 @@ def render_dashboard() -> None:
         )
 
         st.subheader("Financial scenarios")
-
+        st.dataframe(
+            [
+                scenario.model_dump(mode="json")
+                for scenario in report.scenarios
+            ],
+            hide_index=True,
+        )
         for scenario in report.scenarios:
             st.markdown(f"### {scenario.name.title()} scenario")
 
@@ -131,11 +137,53 @@ def render_dashboard() -> None:
             "for this region."
         )
 
-    st.subheader("Storefront preview")
+    
+    st.subheader("Top 5 Product Recommendations")
+
     ranked = preview_products(path, selected)
+
     if not ranked:
-        st.info("No active recommendation profile for this candidate.")
-    for item in ranked:
-        st.write(f"{item.rank}. {item.product_id} — score {item.score:.3f}")
-        with st.expander(f"Why {item.product_id}?"):
-            st.json(item.breakdown.model_dump(mode="json"))
+        st.info(
+            "No recommendation profile available for this region yet."
+        )
+    else:
+        top_five = ranked[:5]
+
+        st.caption(
+            f"Showing {len(top_five)} recommended products "
+            "for the selected region."
+        )
+
+        for item in top_five:
+            with st.container(border=True):
+                left, right = st.columns([3, 1])
+
+                with left:
+                    st.markdown(
+                        f"### #{item.rank} — {item.product_id}"
+                    )
+
+                with right:
+                    st.metric(
+                        "Ranking score",
+                        f"{item.score:.3f}"
+                    )
+
+                with st.expander("Why this product?"):
+                    st.json(
+                        item.breakdown.model_dump(mode="json")
+                    )
+    st.divider()
+    st.subheader("Before / After Recommendations")
+
+    st.info(
+        "Recommendation comparison is awaiting "
+        "the application comparison service."
+    )
+    st.divider()
+    st.subheader("Candidate Approval")
+
+    st.info(
+        "Approve and Reject actions will be available "
+        "once the lifecycle application service is connected."
+    )
