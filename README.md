@@ -1,6 +1,8 @@
 # Atlas Commerce
 
-Atlas Commerce is a local operator workspace for evaluating candidate regions, approving viable markets, and safely adapting regional product recommendations from synthetic signals. Financial and evaluation outcomes are simulated. External signal providers remain replaceable adapters, and partner integrations show explicit degraded status unless live operations are verified.
+<img src="./images/atlasagentdashboard.png" alt="atlas agent landing page">
+
+Atlas Commerce is a local operator workspace and a full, orchestrator agent for evaluating candidate regions, approving viable markets, and safely adapting regional product recommendations from synthetic signals. Financial and evaluation outcomes are simulated. External signal providers remain replaceable adapters, and partner integrations show explicit degraded status unless live operations are verified.
 
 ## How it works
 
