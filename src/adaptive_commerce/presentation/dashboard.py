@@ -2,6 +2,8 @@
 
 import os
 import sqlite3
+import html
+import re
 from pathlib import Path
 
 import streamlit as st
@@ -13,7 +15,10 @@ from adaptive_commerce.application.dashboard import (
     list_region_actions, list_region_cycles, list_regions, persist_cfo_import,
     preview_products, submit_candidate,
 )
-from adaptive_commerce.application.assistant import ask_assistant, assistant_status
+from adaptive_commerce.application.assistant import (
+    ask_assistant, assistant_status, requires_agent_workflow,
+)
+from adaptive_commerce.application.workflow_client import WorkflowApiError, workflow_request
 from adaptive_commerce.application.lifecycle import (
     approve_region, archive_region, pause_region, reject_region, resume_region,
     rollback_region,
@@ -49,7 +54,18 @@ def render_dashboard() -> None:
     tracing = initialize_tracing()
     regions = list_regions(path)
     if not regions:
-        st.info("No regions found. Restore the demo data from Settings.")
+        _render_sidebar()
+        section = st.session_state.get("dashboard_section", "Ask Atlas")
+        if section == "Agent workflows":
+            with st.container(key="atlas_page_content"):
+                st.info("The portfolio has no regions. Existing workflows and deletion audits remain available.")
+                _render_agent_workflows()
+        elif section == "Settings":
+            with st.container(key="atlas_page_content"):
+                st.info("The portfolio has no regions. Restore demo data from Settings or review existing workflows.")
+                _render_settings(path)
+        else:
+            st.info("No regions found. Restore the demo data from Settings, or open Agent workflows to review its audit history.")
         return
     labels = {region.id: f"{region.name} · {region.state.value.replace('_', ' ').title()}"
               for region in regions}
@@ -84,6 +100,8 @@ def render_dashboard() -> None:
             _render_recommendations(path, selected_region)
         elif section == "Activity & evidence":
             _render_activity(path, selected_region)
+        elif section == "Agent workflows":
+            _render_agent_workflows()
         elif section == "Settings":
             _render_settings(path)
 
@@ -162,6 +180,9 @@ def _inject_dashboard_styles() -> None:
       .st-key-atlas_chat_history {max-width: 820px; margin: 0 auto 1.5rem;}
       .st-key-atlas_chat_history [data-testid="stChatMessage"] {border:1px solid var(--atlas-border); border-radius:14px; padding:1rem 1.15rem; background:var(--secondary-background-color);}
       .st-key-atlas_chat_history + .st-key-atlas_chat_composer {position:sticky; bottom:1rem; z-index:4;}
+      .atlas-agent-live {display:inline-flex; align-items:center; gap:.55rem; color:var(--text-color); opacity:.78; font-size:.88rem;}
+      .atlas-agent-live::before {content:""; width:.42rem; height:.42rem; border-radius:50%; background:var(--primary-color); animation:atlas-pulse 1.35s ease-in-out infinite;}
+      @keyframes atlas-pulse {50% {opacity:.32; transform:scale(.82);}}
       h1, h2, h3 {letter-spacing:-.035em;}
       @keyframes atlas-enter {from {opacity:0;} to {opacity:1;}}
       @media (max-width: 900px) {
@@ -184,6 +205,7 @@ def _render_sidebar() -> None:
         ("Region operations", "public"),
         ("Recommendations", "query_stats"),
         ("Activity & evidence", "history"),
+        ("Agent workflows", "account_tree"),
         ("Settings", "settings"),
     )
     collapsed = bool(st.session_state.get("sidebar_collapsed", False))
@@ -218,13 +240,19 @@ def _navigation_key(label: str) -> str:
     return {
         "Ask Atlas": "assistant", "Overview": "overview",
         "Region operations": "region_operations", "Recommendations": "recommendations",
-        "Activity & evidence": "activity", "Settings": "settings",
+        "Activity & evidence": "activity", "Agent workflows": "agent_workflows", "Settings": "settings",
     }[label]
 
 
 def _select_section(label: str) -> None:
     """Select a workspace page from the sidebar."""
     st.session_state["dashboard_section"] = label
+
+
+def _open_agent_workflow(workflow_id: str) -> None:
+    """Open a workflow linked from an assistant response."""
+    st.session_state["selected_workflow_id"] = workflow_id
+    st.session_state["dashboard_section"] = "Agent workflows"
 
 
 def _toggle_sidebar() -> None:
@@ -569,9 +597,13 @@ def _render_assistant(path: Path, region_id: str) -> None:
     with st.expander("Assistant details and data use", expanded=False):
         st.caption(f"{status['provider']} · {status['model']} · {status['status'].title()} — {status['detail']}")
         st.caption(
-            "Atlas uses its deterministic engine for recommendation outcomes. Chat can perform only explicitly "
-            "requested, validated operations; region approval still uses the finance gate, and recommendation "
-            "versions change only through the update cycle or rollback. Catalog removals are soft and preserve "
+            "Atlas uses its deterministic engine for recommendation outcomes. Questions and single explicit "
+            "operations use the Atlas assistant; chained operations use specialist planning and review. "
+            "A direct request authorizes its validated, allowlisted operations without a second approval click. "
+            "Permanent deletion requires an explicit request naming the exact target and is rechecked against "
+            "its reviewed impact snapshot at execution. "
+            "Region activation still uses the finance gate, and recommendation versions change only through "
+            "the update cycle or rollback. Catalog removals are soft and preserve "
             "history. Relevant Atlas records, including synthetic signal excerpts, may be sent to the configured "
             "model provider. Signal corrections are separately audited."
         )
@@ -589,6 +621,15 @@ def _render_assistant(path: Path, region_id: str) -> None:
                         st.success(f"Signal correction saved as `{item['repaired_signal_id']}`; the original signal is unchanged.")
                     for notice in item.get("notices", []):
                         st.warning(notice)
+                    if item.get("workflow_id"):
+                        st.button(
+                            "Open agent workflow",
+                            key=f"open_agent_workflow_{item['workflow_id']}",
+                            icon=":material/account_tree:",
+                            type="secondary",
+                            on_click=_open_agent_workflow,
+                            args=(item["workflow_id"],),
+                        )
         _render_assistant_composer(path, history)
         return
 
@@ -622,7 +663,7 @@ def _set_assistant_prompt(prompt: str) -> None:
 
 
 def _render_assistant_composer(path: Path, history: list[dict[str, str]]) -> None:
-    """Render the shared assistant input and preserve the established service call."""
+    """Render chat input and route chained work to its durable workflow."""
     with st.container(key="atlas_chat_composer"):
         with st.form("atlas_assistant_form", clear_on_submit=True):
             question = st.text_area(
@@ -633,6 +674,33 @@ def _render_assistant_composer(path: Path, history: list[dict[str, str]]) -> Non
             submitted = st.form_submit_button("Send", type="primary", icon=":material/arrow_upward:")
     if submitted:
         history.append({"role": "user", "content": question})
+        if question.strip() and _is_workflow_confirmation(question):
+            prior_assistant = next((
+                item.get("content", "") for item in reversed(history[:-1])
+                if item.get("role") == "assistant"
+            ), "")
+            prior_request = next((
+                item["content"] for item in reversed(history[:-1])
+                if item.get("role") == "user" and requires_agent_workflow(item.get("content", ""))
+            ), None) if _assistant_requested_confirmation(prior_assistant) else None
+            if prior_request:
+                _continue_prior_workflow(history, prior_request)
+                st.session_state["assistant_history"] = history[-20:]
+                st.rerun()
+        if question.strip() and requires_agent_workflow(question):
+            try:
+                workflow = workflow_request("POST", "/v1/workflows", {"request": question})
+                history.append({
+                    "role": "assistant",
+                    "content": f"I’ve started the specialist workflow. Your direct request authorizes its validated operations; Atlas still enforces finance and data-integrity gates. Workflow `{workflow['id']}` is planning now.",
+                    "workflow_id": workflow["id"],
+                })
+                st.session_state["selected_workflow_id"] = workflow["id"]
+                st.session_state["dashboard_section"] = "Agent workflows"
+            except WorkflowApiError as error:
+                history.append({"role": "assistant", "content": f"I couldn't start the workflow service: {error}. Start the local Compose stack and retry."})
+            st.session_state["assistant_history"] = history[-20:]
+            st.rerun()
         result = ask_assistant(path, question,
             history=[{"role": item["role"], "content": item["content"]} for item in history[:-1]])
         history.append({"role": "assistant", "content": result.answer,
@@ -641,6 +709,239 @@ def _render_assistant_composer(path: Path, history: list[dict[str, str]]) -> Non
                         "repaired_signal_id": result.repaired_signal_id})
         st.session_state["assistant_history"] = history[-20:]
         st.rerun()
+
+
+def _is_workflow_confirmation(question: str) -> bool:
+    """Recognize short affirmative replies without interpreting them as standalone tasks."""
+    return bool(re.fullmatch(
+        r"\s*(?:yes|yeah|yep|sure|okay|ok|go ahead|do it|proceed|continue|run it|please do)[.! ]*\s*",
+        question,
+        re.I,
+    ))
+
+
+def _assistant_requested_confirmation(answer: str) -> bool:
+    """Require a recent assistant question before routing a short yes to an old task."""
+    return "?" in answer or bool(re.search(r"\b(would you like|shall i|should i|want me to)\b", answer, re.I))
+
+
+def _continue_prior_workflow(history: list[dict[str, str]], request: str) -> None:
+    """Resume the exact chained request behind an affirmative chat follow-up."""
+    try:
+        existing_items = workflow_request("GET", "/v1/workflows").get("workflows", [])
+        matches = [item for item in existing_items if item.get("request", "").strip() == request.strip()]
+        workflow = None
+        if matches:
+            candidate = workflow_request("GET", f"/v1/workflows/{matches[0]['id']}")
+            completed_actions = any(action.get("status") == "complete" for action in candidate.get("actions", []))
+            if candidate.get("status") == "awaiting_approval":
+                workflow = workflow_request(
+                    "POST", f"/v1/workflows/{candidate['id']}/approve",
+                    {"plan_hash": candidate["plan_hash"], "approved_by": "operator_prompt_followup"},
+                )
+            elif candidate.get("status") not in {"failed", "partially_failed"} or completed_actions:
+                workflow = candidate
+        if workflow is None:
+            workflow = workflow_request("POST", "/v1/workflows", {"request": request})
+        workflow_id = workflow["id"]
+        status = str(workflow.get("status", "planning")).replace("_", " ").title()
+        history.append({
+            "role": "assistant",
+            "content": f"I’ve continued your earlier chained request, rather than treating ‘{history[-1]['content']}’ as a new task. Workflow `{workflow_id}` is {status}; its current results are available in Agent workflows.",
+            "workflow_id": workflow_id,
+        })
+        st.session_state["selected_workflow_id"] = workflow_id
+        st.session_state["dashboard_section"] = "Agent workflows"
+    except (WorkflowApiError, KeyError) as error:
+        history.append({
+            "role": "assistant",
+            "content": f"I couldn't reconnect that confirmation to its workflow. The original request is unchanged; retry it from Ask Atlas. ({error})",
+        })
+
+
+def _render_agent_workflows() -> None:
+    """Show deployed specialists, live duties, plan review, and execution evidence."""
+    st.title("Agent workflows")
+    st.caption("Specialists plan and review the request. Atlas executes only validated operations explicitly requested by the operator.")
+    try:
+        agents = workflow_request("GET", "/v1/agents").get("agents", [])
+        workflows = workflow_request("GET", "/v1/workflows").get("workflows", [])
+    except WorkflowApiError as error:
+        st.warning(f"Workflow orchestrator is unavailable. Start the Compose stack to deploy the specialist workers. {error}")
+        st.code("docker compose up --build", language="bash")
+        return
+
+    st.subheader("Deployed specialists")
+    for start in range(0, len(agents), 3):
+        columns = st.columns(3)
+        for column, agent in zip(columns, agents[start:start + 3]):
+            with column:
+                status = agent.get("status", "offline")
+                st.markdown(f"**{agent.get('role', 'Specialist').title()}** · {status.title()}")
+                st.caption(agent.get("duty", "Specialist duty"))
+                if agent.get("model"):
+                    st.caption(f"{agent.get('provider', 'Model provider')} · `{agent['model']}`")
+                if status not in {"healthy", "configured"}:
+                    st.caption(agent.get("detail", "Worker is degraded or unavailable."))
+
+    st.divider()
+    with st.form("start_agent_workflow", clear_on_submit=True):
+        request_text = st.text_area("What should Atlas do?", placeholder="Example: Add a high confidence festival signal to Cedar, run the regional cycle, and report whether recommendations changed.", height=100)
+        start_workflow = st.form_submit_button("Plan workflow", type="primary", icon=":material/account_tree:")
+    if start_workflow and request_text.strip():
+        try:
+            workflow = workflow_request("POST", "/v1/workflows", {"request": request_text})
+            st.session_state["selected_workflow_id"] = workflow["id"]
+            st.rerun()
+        except WorkflowApiError as error:
+            st.error(str(error))
+
+    if not workflows:
+        st.info("No workflows yet. Submit a task to deploy the specialists on it.")
+        return
+    workflow_ids = [item["id"] for item in workflows]
+    selected_id = st.session_state.get("selected_workflow_id")
+    if selected_id not in workflow_ids:
+        selected_id = workflow_ids[0]
+    labels = {item["id"]: f"{item.get('title') or item['request'][:72]} · {item['status'].replace('_', ' ').title()}" for item in workflows}
+    st.selectbox("Workflow history", workflow_ids, index=workflow_ids.index(selected_id),
+                 format_func=lambda value: labels[value], key="selected_workflow_id")
+    _render_workflow_detail(st.session_state["selected_workflow_id"])
+
+
+@st.fragment(run_every=2)
+def _render_workflow_detail(workflow_id: str) -> None:
+    """Refresh workflow and specialist statuses while a run is active."""
+    try:
+        workflow = workflow_request("GET", f"/v1/workflows/{workflow_id}")
+    except WorkflowApiError as error:
+        st.error(str(error))
+        return
+    status = workflow.get("status", "unknown")
+    st.subheader(workflow.get("title") or "Workflow review")
+    st.caption(workflow.get("summary") or workflow.get("request", ""))
+    if status in {"planning", "approved", "running"}:
+        live = next((step.get("label") for step in workflow.get("steps", []) if step.get("status") in {"working", "reviewing", "executing"}), "Coordinating specialist work…")
+        st.markdown(f'<div class="atlas-agent-live">{html.escape(str(live))}</div>', unsafe_allow_html=True)
+    status_label = {
+        "approved": "authorized",
+        "awaiting_approval": "legacy plan pending",
+    }.get(status, status.replace("_", " "))
+    st.caption(f"Status · {status_label.title()} · Workflow `{workflow_id}`")
+
+    st.markdown("**Specialist duty**")
+    columns = st.columns(3)
+    for index, step in enumerate(workflow.get("steps", [])):
+        with columns[index % 3]:
+            st.markdown(f"**{step['role'].title()}** · {step['status'].replace('_', ' ').title()}")
+            st.caption(step.get("label", step.get("duty", "")))
+            if step.get("summary"):
+                st.caption(step["summary"][:600])
+
+    actions = workflow.get("actions", [])
+    if status == "awaiting_approval":
+        st.warning("This workflow was created before direct requests began executing automatically. Resubmit the original request from Ask Atlas to run it under the current workflow rules.")
+        if any(action["tool_name"] == "hard_delete_record" for action in actions):
+            st.error("This plan includes permanent deletion. Review the exact target and dependent-record counts below.")
+        for index, action in enumerate(actions, start=1):
+            with st.container(border=True):
+                st.markdown(f"**{index}. {action['tool_name'].replace('_', ' ').title()}** · {action['agent_role'].title()} specialist")
+                st.write(action["rationale"])
+                st.caption(f"Impact: {action['impact']}")
+                details = action.get("impact_details", {})
+                if action["tool_name"] == "hard_delete_record":
+                    st.error(f"Permanent deletion target: {details.get('target_type')} `{details.get('target_id')}`")
+                    st.caption("Records affected by deletion (keys marked retained remain as audit history):")
+                    st.json(details.get("dependencies", {}), expanded=True)
+                    st.caption("Record snapshot at review time:")
+                    st.json(details.get("target_snapshot", {}), expanded=True)
+                st.json(action["arguments"], expanded=False)
+        review = next((step for step in workflow["steps"] if step["role"] == "review"), None)
+        if review and review.get("summary"):
+            st.markdown("**Independent review**")
+            st.write(review["summary"])
+            for finding in review.get("result", {}).get("findings", []):
+                st.caption(f"· {finding}")
+        if st.button("Cancel this plan", key=f"cancel_workflow_{workflow_id}"):
+            try:
+                workflow_request("POST", f"/v1/workflows/{workflow_id}/cancel", {})
+                st.rerun()
+            except WorkflowApiError as error:
+                st.error(str(error))
+    elif actions:
+        st.markdown("**Requested operations**")
+        for action in actions:
+            label = action["tool_name"].replace("_", " ").title()
+            with st.expander(f"{action['status'].title()} · {label}", expanded=action["status"] == "failed"):
+                result = action.get("result") or {}
+                created_region = result.get("region") if result.get("status") in {
+                    "created", "already_exists", "reassessed_existing",
+                } else None
+                if created_region and created_region.get("id"):
+                    action_text = {
+                        "created": "created",
+                        "already_exists": "already exists",
+                        "reassessed_existing": "finance reassessed",
+                    }.get(result.get("status"), "available")
+                    st.success(f"Region {action_text}: {created_region.get('name', 'New region')} · {created_region.get('state', 'candidate').replace('_', ' ').title()}")
+                    finance_decision = result.get("finance_decision") or result.get("finance", {}).get("decision")
+                    if finance_decision:
+                        st.caption(f"Simulated finance decision · {str(finance_decision).title()}")
+                    if result.get("summary"):
+                        st.caption(result["summary"])
+                    if finance_decision == "reject":
+                        st.warning(
+                            "Atlas's simulated finance assessment did not recommend activation. "
+                            "The candidate remains saved; update its assumptions and reassess before cycling it."
+                        )
+                    if st.button(
+                        f"Open {created_region.get('name', 'region')} in Region operations",
+                        key=f"open_created_region_{workflow_id}_{action['id']}",
+                        icon=":material/public:",
+                    ):
+                        st.session_state["selected_region"] = created_region["id"]
+                        st.session_state["dashboard_section"] = "Region operations"
+                        st.rerun()
+                if result.get("status") == "cycle_completed":
+                    st.caption(
+                        f"Cycle `{result.get('cycle_id', 'unknown')}` · "
+                        f"{str(result.get('cycle_status', 'unknown')).replace('_', ' ').title()}"
+                    )
+                    if result.get("rejection_reason"):
+                        st.warning(f"Rejection reason: {result['rejection_reason'].replace('_', ' ')}")
+                    before = result.get("before_rankings", [])
+                    after = result.get("after_rankings", [])
+                    if before or after:
+                        st.markdown("**Product rankings before and after**")
+                        catalog = get_product_catalog(Path(os.environ.get("ATLAS_DB_PATH", "data/atlas_commerce.db")))
+                        _render_comparison(before, after, catalog)
+                    evaluation = result.get("evaluation", {})
+                    if evaluation:
+                        metrics = st.columns(4)
+                        metrics[0].metric("Active relevance", f"{evaluation.get('active_relevance', 0):.2f}")
+                        metrics[1].metric("Candidate relevance", f"{evaluation.get('candidate_relevance', 0):.2f}")
+                        metrics[2].metric("Active simulated profit", f"${evaluation.get('active_profit', 0):.2f}")
+                        metrics[3].metric("Candidate simulated profit", f"${evaluation.get('candidate_profit', 0):.2f}")
+                    if result.get("summary"):
+                        st.caption(result["summary"])
+                elif result:
+                    st.json(result, expanded=False)
+                if action.get("error"):
+                    if action["status"] == "skipped":
+                        st.caption(action["error"])
+                    else:
+                        st.error(action["error"])
+    events = workflow.get("events", [])
+    if events:
+        with st.expander("Workflow audit timeline", expanded=False):
+            for event in events:
+                st.caption(f"{event['created_at']} · {event['actor']} · {event['event_type'].replace('_', ' ')}")
+    if workflow.get("trace_id"):
+        st.caption(f"Neatlogs trace · `{workflow['trace_id']}`")
+    if workflow.get("error"):
+        st.error(workflow["error"])
+    if status in {"planning", "approved", "running"}:
+        st.caption("Status refreshes automatically while specialists are working.")
 
 
 def _run_operator_action(action, success_message: str) -> None:

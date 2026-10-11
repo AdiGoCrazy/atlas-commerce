@@ -5,9 +5,11 @@ from pathlib import Path
 
 from pydantic import AwareDatetime, BaseModel
 
+from adaptive_commerce.domain.models import RecommendationVersion
 from adaptive_commerce.persistence import Repository, connect
 from adaptive_commerce.recommender import (
     RankedProduct,
+    RankingEvent,
     RankingPolicy,
     RankingProduct,
     RankingProfile,
@@ -53,6 +55,10 @@ def compare_recommendations(
             for product in repository.get_products_for_ranking(region_id)
         ]
         policy = RankingPolicy.model_validate(repository.get_ranking_policy(region_id))
+        events = [
+            RankingEvent.model_validate(event)
+            for event in repository.get_active_events(region_id, when.isoformat())
+        ]
 
     before_profile = RankingProfile(
         region_id=region_id, active_version_id=before_version.id, weights=before_version.weights,
@@ -65,12 +71,9 @@ def compare_recommendations(
         before_version_id=before_version.id,
         after_version_id=after_version.id,
         evaluated_at=when,
-        before=rank_products(products, before_profile, now=when, policy=policy),
-        after=rank_products(products, after_profile, now=when, policy=policy),
+        before=rank_products(products, before_profile, now=when, policy=policy, events=events),
+        after=rank_products(products, after_profile, now=when, policy=policy, events=events),
     )
-
-
-from adaptive_commerce.domain.models import RecommendationVersion
 
 
 def list_recommendation_versions(

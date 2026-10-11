@@ -5,8 +5,10 @@ from types import SimpleNamespace
 
 import pytest
 
+import adaptive_commerce.application.assistant as assistant_module
 from adaptive_commerce.application.assistant import (
-    _available_tools, _execute_tool, ask_assistant, repair_signal_from_trace,
+    _action_request_allowed, _available_tools, _execute_tool, ask_assistant,
+    repair_signal_from_trace, requires_agent_workflow,
 )
 from adaptive_commerce.application.dashboard import (
     CandidateRequest, bootstrap_database, submit_candidate,
@@ -62,6 +64,40 @@ def test_assistant_uses_allowlisted_read_tool_and_returns_evidence(tmp_path, mon
     tool_names = {tool["function"]["name"] for tool in client.requests[0]["tools"]}
     assert "repair_signal" not in tool_names
     assert client.requests[0]["model"] == DEFAULT_MODEL
+
+
+@pytest.mark.parametrize(
+    ("question", "expected"),
+    [
+        ("Summarize the current portfolio.", False),
+        ("Add a synthetic event signal to Cedar Valley.", False),
+        ("Add a synthetic event signal to Cedar Valley, then run its regional cycle.", True),
+        (
+            "Do a full chained workflow, setup a new custom region called test beach, add festival products, "
+            "then add confidence inputs, cycle them and compare results between cycles.",
+            True,
+        ),
+        ("Permanently delete this region.", True),
+        ("Don't permanently delete this region; just explain its status.", False),
+    ],
+)
+def test_agent_workflow_routing_is_limited_to_chained_or_destructive_work(question, expected):
+    assert requires_agent_workflow(question) is expected
+
+
+def test_assistant_suppresses_internal_deliberation_when_model_returns_it(tmp_path, monkeypatch):
+    monkeypatch.setenv("LLM_MODEL", DEFAULT_MODEL)
+    bootstrap_database(tmp_path / "atlas.db")
+    client = FakeClient([_response(_message(
+        "Let me think. The user is asking me to create a region, but I need to check available tools."
+    ))])
+
+    result = ask_assistant(tmp_path / "atlas.db", "What does the current portfolio contain?", client=client)
+
+    assert "Let me think" not in result.answer
+    assert "available tools" not in result.answer
+    assert "verified Atlas records" in result.answer
+    assert any("suppressed" in notice for notice in result.notices)
 
 
 def test_assistant_degrades_without_openrouter_key(tmp_path, monkeypatch):
@@ -200,6 +236,26 @@ def test_region_snapshot_resolves_custom_region_by_name(tmp_path):
     assert duplicate["recommendations"]
 
 
+def test_region_snapshot_separates_pending_from_processed_signals(tmp_path):
+    path = tmp_path / "region-signal-status.db"
+    bootstrap_database(path)
+    signal = inject_demo_signal(
+        path, "aspen", ["festival"], 0.9,
+        "Synthetic event evidence for testing pending signal status in Atlas Mind.",
+    )
+    run_region_cycle(path, "aspen")
+
+    snapshot = _execute_tool(
+        path, "get_region_snapshot", {"region_id": "aspen"},
+        trace_reader=lambda _trace_id: None,
+    )
+
+    assert snapshot["pending_signal_count"] == 0
+    assert snapshot["signals"] == []
+    assert any(item["id"] == signal.id and item["status"] == "processed"
+               for item in snapshot["recent_signals"])
+
+
 def test_explicit_candidate_create_is_exposed_and_empty_model_reply_uses_result(tmp_path, monkeypatch):
     path = tmp_path / "assistant-create.db"
     bootstrap_database(path)
@@ -218,7 +274,7 @@ def test_explicit_candidate_create_is_exposed_and_empty_model_reply_uses_result(
     assert "create_candidate_region" in exposed
     assert "set_region_lifecycle" not in exposed
     assert result.status == "answered"
-    assert "pending operator approval" in result.answer
+    assert "remains a candidate" in result.answer
     assert "simulated" in result.answer
     with connect(path) as conn:
         region = Repository(conn).get_region(result.evidence[0].record_id)
@@ -296,6 +352,9 @@ def test_chat_pipeline_tools_add_synthetic_signal_and_run_engine(tmp_path):
     assert cycle["status"] == "cycle_completed"
     assert "Festival Bay" in cycle["summary"]
     assert cycle["cycle_id"]
+    assert "before_rankings" in cycle
+    assert "after_rankings" in cycle
+    assert "rejection_reason" in cycle
     assert replay["status"] == "cycle_completed"
     assert replay["cycle_id"] != cycle["cycle_id"]
     assert "Replayed cycle" in replay["summary"]
@@ -361,3 +420,56 @@ def test_agent_write_capabilities_require_explicit_operation_language():
     assert "remove_pending_signal" not in _available_tools("What happens if I remove this signal?")
     assert "set_region_lifecycle" not in _available_tools("Should I approve this candidate?")
     assert "replay_region_cycle" in _available_tools("Replay cycle abc123.")
+
+
+@pytest.mark.parametrize(("question", "tool_name"), [
+    ("Don't run the regional cycle.", "run_region_cycle"),
+    ("Do not execute the regional pipeline.", "run_region_cycle"),
+    ("Don't remove this signal.", "remove_pending_signal"),
+    ("I don't want you to delete the signal.", "remove_pending_signal"),
+    ("Never approve this candidate.", "set_region_lifecycle"),
+    ("What happens if I remove a product?", "manage_product_catalog"),
+])
+def test_negated_or_hypothetical_requests_do_not_expose_write_tools(question, tool_name):
+    assert tool_name not in _available_tools(question)
+
+
+def test_action_intent_scopes_negative_context_to_its_clause():
+    assert "create_candidate_region" in _available_tools(
+        "The region doesn't exist, create a candidate called Diwali India."
+    )
+    assert not _action_request_allowed("run_region_cycle", "Don't run a cycle.")
+
+
+@pytest.mark.parametrize("tool_name", ["run_region_cycle", "remove_pending_signal"])
+def test_dispatch_rechecks_intent_before_mutating_tools(tmp_path, monkeypatch, tool_name):
+    path = tmp_path / f"assistant-negated-{tool_name}.db"
+    bootstrap_database(path)
+    signal = inject_demo_signal(
+        path, "aspen", ["festival"], 0.9,
+        "Synthetic pending evidence that must remain untouched by a negated request.",
+    )
+    with connect(path) as conn:
+        cycles_before = len(Repository(conn).list_update_cycles("aspen"))
+    arguments = {"region_id": "aspen"} if tool_name == "run_region_cycle" else {"signal_id": signal.id}
+    call = SimpleNamespace(id="negated-write", function=SimpleNamespace(
+        name=tool_name, arguments=json.dumps(arguments),
+    ))
+    client = FakeClient([
+        _response(_message(tool_calls=[call])),
+        _response(_message("No operation was performed.")),
+    ])
+    monkeypatch.setattr(assistant_module, "_available_tools", lambda _question: [tool_name])
+
+    result = ask_assistant(path, "Don't run the regional cycle or remove this signal.", client=client)
+
+    tool_result = next(
+        item for item in client.requests[1]["messages"] if item["role"] == "tool"
+    )
+    assert "does not explicitly authorize" in tool_result["content"]
+    assert result.status == "answered"
+    with connect(path) as conn:
+        repository = Repository(conn)
+        assert repository.get_signal(signal.id) is not None
+        assert repository.count_unprocessed_signals("aspen") == 1
+        assert len(repository.list_update_cycles("aspen")) == cycles_before

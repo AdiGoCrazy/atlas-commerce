@@ -71,7 +71,8 @@ the default (`openrouter/free`), which routes to an eligible free model; set `LL
 Tool calls are allowlisted and bounded. Read tools expose Atlas snapshots,
 the product catalog, sanitized trace summaries, and deterministic recommendation
 previews. Write tools are only included when the user's current message explicitly
-requests the matching action. The assistant can create and edit pending candidates
+requests the matching action, and the same positive-intent check is repeated before
+any write executes; negated and hypothetical requests are rejected. The assistant can create and edit pending candidates
 and their simulated financial assumptions, soft-remove a candidate or region,
 perform explicitly requested lifecycle transitions, add synthetic signals,
 withdraw a signal only while it is pending and unreferenced by cycle history,
@@ -88,7 +89,8 @@ discloses that queried Atlas records may be sent to the configured model provide
 Prompt and model response content are masked from Neatlogs export, while span
 metadata, error types, and status remain available. If a provider returns no final
 text, Atlas summarizes the verified application-tool output instead of presenting
-an empty answer.
+an empty answer. Saved-version comparisons rank both versions at the same timestamp
+with the region's active event windows and ranking policy, matching live ranking.
 
 Trace readback requires `NEATLOGS_PROJECT_ID` and `NEATLOGS_TOKEN` in addition
 to export configuration. If these are absent or the exact trace cannot be
@@ -174,5 +176,21 @@ cfo.ai workspace/model:
 cfo.ai scenario:
 cfo.ai business plan:
 ```
+
+## Specialist workflow runtime
+
+Compose deploys five separate specialist processes against the one configured
+OpenRouter or OpenAI model. Their duties are planning, Atlas evidence research,
+finance review, deterministic recommendation review, and independent plan
+review. Structured output and direct user intent are validated before the plan is
+offered. The coordinator alone connects to SQLite. After request-scope validation, workers
+send the authorized workflow ID, action ID, role, and plan hash to the internal
+execution endpoint, and Atlas applies the action through existing services.
+Deletion plans capture and recheck the exact target snapshot and dependent rows,
+then leave a durable deletion audit. Neatlogs-wrapped model calls and workflow
+spans provide runtime observability. Starting a finance worker is not evidence of
+a live cfo.ai connection; status remains degraded until a real authenticated
+scenario operation is verified. Entire is a development evidence tool, not a
+runtime specialist.
 
 Do not put secrets or private customer data in the evidence manifest.

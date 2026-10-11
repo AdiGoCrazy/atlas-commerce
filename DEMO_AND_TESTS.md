@@ -2,6 +2,41 @@
 
 ## Demonstration story
 
+### Specialist workflow demo
+
+Run `docker compose up --build` with an OpenRouter key in `.env`. In **Agent
+workflows**, submit “Add a festival signal to Cedar Valley at confidence 0.91, run
+its regional cycle, and report the recommendation changes.” Watch the planner,
+research, finance, recommendation, and review duties update. While specialists are working, confirm the planned signal and cycle are visible.
+After request validation, confirm the signal, cycle result, deterministic before/after ranking, and
+simulated evaluation. Ask “Don’t run a regional cycle for Cedar; tell me its
+pending signals” as a read-only control; this must not start a workflow or consume
+signals.
+
+The same chained request can be sent from **Ask Atlas**. It remains in the chat
+and the assistant reply includes **Open agent workflow**, which opens the saved
+plan and specialist review. Read-only questions and single operations stay in
+the ordinary assistant. For provider delays, allow up to about two minutes for
+a specialist duty before treating it as timed out; inspect the worker logs with
+the command below.
+
+For a new-region chained workflow, the proposed action order must show candidate
+creation, activation, signal addition, and then the regional cycle. The direct
+create-and-cycle request authorizes that exact activation prerequisite, while Atlas
+still applies its finance gate before any signal or cycle can run.
+If finance rejects the candidate, execution stops at activation and later actions
+remain unexecuted. The current region model has no description field, and catalog
+eligibility is shared globally; the plan summary must disclose these limitations
+instead of claiming to save a description or apply a region-only product filter.
+
+For permanent deletion, use a disposable database. Request permanent deletion of
+one exact synthetic signal or product, inspect the target snapshot and dependency
+counts, then verify the target is gone and the audit snapshot remains.
+A request that only says “delete” must not generate a hard-delete operation. Never
+use a production database for this scenario. API key configuration proves only
+configuration; a successful planning task verifies actual model availability.
+cfo.ai remains degraded until a live authenticated scenario is demonstrated.
+
 Use fictional regions and products so the result is reproducible and safe to share.
 
 The main demo is a UML sequence model:
@@ -116,7 +151,7 @@ Show:
 
 ## Manual verification checklist
 
-- A new region cannot become active without approval.
+- A new region cannot become active without a direct activation request and a passing finance gate.
 - An already active region can process a routine update without approval.
 - A duplicate source record is processed only once.
 - A stale event does not produce a new update.

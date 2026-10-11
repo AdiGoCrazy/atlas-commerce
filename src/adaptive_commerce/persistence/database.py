@@ -11,9 +11,10 @@ from .schema import SCHEMA
 
 def connect(path: str | Path) -> sqlite3.Connection:
     """Create a SQLite connection with row factory and foreign keys enabled."""
-    conn = sqlite3.connect(path)
+    conn = sqlite3.connect(path, timeout=10)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA busy_timeout = 10000")
     return conn
 
 
