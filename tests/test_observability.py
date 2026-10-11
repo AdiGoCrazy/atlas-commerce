@@ -21,6 +21,7 @@ def test_trace_step_records_workflow_ids_without_capturing_payload(monkeypatch):
     with observability.trace_step(
         "CHAIN", "recommendation_ranking", region_id="r1",
         cycle_id="c1", version_id="v1",
+        attributes={"result_status": "activated", "signal_count": 3},
     ):
         pass
 
@@ -31,6 +32,8 @@ def test_trace_step_records_workflow_ids_without_capturing_payload(monkeypatch):
             "atlas.region_id": "r1",
             "atlas.cycle_id": "c1",
             "atlas.version_id": "v1",
+            "atlas.result_status": "activated",
+            "atlas.signal_count": 3,
         },
     }
 

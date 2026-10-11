@@ -1,4 +1,4 @@
-"""Sprint 1 dashboard services backed by validated SQLite state."""
+"""Application services for candidates, finance reports, and storefront views."""
 
 import json
 import logging
@@ -13,8 +13,10 @@ from pydantic import BaseModel, ConfigDict, Field
 from adaptive_commerce.domain import Product, Region, RegionProfile, RegionState
 from adaptive_commerce.integrations.finance import CfoScenarioImport, FinanceInputs, FinanceReport, assess_finance
 from adaptive_commerce.integrations.observability import trace_step
-from adaptive_commerce.persistence import connect, initialize, load_fixtures
-from adaptive_commerce.recommender import RankingProduct, RankingProfile, RankedProduct, rank_products
+from adaptive_commerce.persistence import Repository, connect, initialize, load_fixtures
+from adaptive_commerce.recommender import (
+    RankingEvent, RankingPolicy, RankingProduct, RankingProfile, RankedProduct, rank_products,
+)
 
 logger = logging.getLogger(__name__)
 FIXTURES = Path(__file__).resolve().parents[3] / "data" / "fixtures"
@@ -25,6 +27,7 @@ class CandidateRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     name: str = Field(min_length=1, max_length=120)
+    locale: str = Field(default="en_US", min_length=2, max_length=20)
     assumptions: FinanceInputs
 
 
@@ -59,7 +62,7 @@ def submit_candidate(path: Path, request: CandidateRequest) -> CandidateResult:
     """Atomically save a candidate and fallback assessment; never activate it."""
     now = datetime.now(timezone.utc)
     region = Region(id=str(uuid4()), name=request.name, state=RegionState.candidate,
-                    locale="en_US", created_at=now)
+                    locale=request.locale, created_at=now)
     with trace_step("CHAIN", "finance_assessment", region_id=region.id):
         report = assess_finance(request.assumptions)
     with closing(connect(path)) as conn, conn:
@@ -79,6 +82,55 @@ def submit_candidate(path: Path, request: CandidateRequest) -> CandidateResult:
     return CandidateResult(region=region, finance=report)
 
 
+@neatlogs.span(kind="WORKFLOW", name="update_candidate")
+def update_candidate(
+    path: Path,
+    region_id: str,
+    *,
+    name: str | None = None,
+    locale: str | None = None,
+    finance_updates: dict | None = None,
+) -> CandidateResult:
+    """Update a pending candidate and append a fresh validated finance assessment."""
+    from adaptive_commerce.domain import RegionState
+
+    if name is None and locale is None and not finance_updates:
+        raise ValueError("provide a candidate name, locale, or financial assumption to update")
+    now = datetime.now(timezone.utc)
+    current_report = candidate_report(path, region_id)
+    assumptions = current_report.assumptions.model_dump() if current_report else FinanceInputs().model_dump()
+    assumptions.update(finance_updates or {})
+    validated_assumptions = FinanceInputs.model_validate(assumptions)
+    with trace_step("CHAIN", "finance_assessment_update", region_id=region_id):
+        report = assess_finance(validated_assumptions)
+    with closing(connect(path)) as conn, conn:
+        region_row = conn.execute("SELECT * FROM regions WHERE id = ?", (region_id,)).fetchone()
+        if region_row is None:
+            raise ValueError("candidate region was not found")
+        region = Repository(conn)._row_to_region(region_row)
+        if region.state is not RegionState.candidate:
+            raise ValueError("only a pending candidate can be edited")
+        updated_name = (name or region.name).strip()
+        if not updated_name:
+            raise ValueError("candidate name cannot be empty")
+        updated_locale = (locale or region.locale).strip()
+        if not updated_locale:
+            raise ValueError("candidate locale cannot be empty")
+        conn.execute("UPDATE regions SET name = ?, locale = ?, updated_at = ? WHERE id = ?",
+                     (updated_name, updated_locale, now.isoformat(), region_id))
+        conn.execute(
+            """INSERT INTO finance_assessments
+            (id, region_id, viability_score, projected_profit, decision, assumptions, cfo_reference, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (str(uuid4()), region_id, "1" if report.recommendation == "approve" else "0",
+             str(report.scenarios[0].profit), report.recommendation,
+             report.model_dump_json(), None, now.isoformat()),
+        )
+        region = Repository(conn).get_region(region_id)
+    logger.info("candidate_updated", extra={"region_id": region_id, "result_status": "candidate"})
+    return CandidateResult(region=region, finance=report)
+
+
 def candidate_report(path: Path, region_id: str) -> FinanceReport | None:
     """Load a saved form assessment; legacy seed assumptions are not live evidence."""
     with closing(connect(path)) as conn:
@@ -93,6 +145,12 @@ def candidate_report(path: Path, region_id: str) -> FinanceReport | None:
     if payload.get("source") == "local_simulation":
         return FinanceReport.model_validate(payload)
     return None
+
+
+def count_pending_signals(path: Path, region_id: str) -> int:
+    """Return how many new signals remain available for a regional cycle."""
+    with closing(connect(path)) as conn:
+        return Repository(conn).count_unprocessed_signals(region_id)
 
 
 def persist_cfo_import(path: Path, imported: CfoScenarioImport) -> bool:
@@ -130,8 +188,40 @@ def preview_products(path: Path, region_id: str) -> list[RankedProduct]:
             payload = dict(row)
             payload["tags"] = json.loads(payload["tags"])
             products.append(RankingProduct.model_validate(Product.model_validate(payload)))
+        from adaptive_commerce.persistence import Repository
+        repository = Repository(conn)
+        policy = repository.get_ranking_policy(region_id)
+        events = repository.get_active_events(region_id, datetime.now(timezone.utc).isoformat())
     with trace_step(
         "CHAIN", "recommendation_ranking", region_id=profile.region_id,
         version_id=profile.active_version_id,
     ):
-        return rank_products(products, profile, now=datetime.now(timezone.utc))
+        return rank_products(
+            products, profile, now=datetime.now(timezone.utc), policy=RankingPolicy.model_validate(policy),
+            events=[RankingEvent.model_validate(event) for event in events],
+        )
+
+
+def list_region_cycles(path: Path, region_id: str):
+    """Return recent autonomous cycles for the selected region."""
+    from adaptive_commerce.persistence import Repository
+    with closing(connect(path)) as conn:
+        return Repository(conn).list_update_cycles(region_id)
+
+
+def list_region_actions(path: Path, region_id: str) -> list[dict]:
+    """Return recent operator controls for the selected region."""
+    from adaptive_commerce.persistence import Repository
+    with closing(connect(path)) as conn:
+        return Repository(conn).list_operator_actions(region_id)
+
+
+def get_product_catalog(path: Path) -> dict[str, Product]:
+    """Load the validated local product catalog for presentation labels."""
+    with closing(connect(path)) as conn:
+        result = {}
+        for row in conn.execute("SELECT * FROM products ORDER BY name"):
+            payload = dict(row)
+            payload["tags"] = json.loads(payload["tags"])
+            result[payload["id"]] = Product.model_validate(payload)
+        return result

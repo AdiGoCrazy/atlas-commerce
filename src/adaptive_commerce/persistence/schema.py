@@ -34,6 +34,18 @@ CREATE TABLE IF NOT EXISTS products (
     base_popularity TEXT NOT NULL DEFAULT '0'
 );
 
+-- Auditable catalog changes; product references remain even after soft removal.
+CREATE TABLE IF NOT EXISTS catalog_actions (
+    id TEXT PRIMARY KEY,
+    product_id TEXT NOT NULL,
+    action TEXT NOT NULL,
+    before_json TEXT,
+    after_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_catalog_actions_product_created
+    ON catalog_actions(product_id, created_at DESC);
+
 -- Source records table (raw source data before normalization)
 CREATE TABLE IF NOT EXISTS source_records (
     id TEXT PRIMARY KEY,
@@ -112,6 +124,12 @@ CREATE TABLE IF NOT EXISTS update_cycles (
     finished_at TEXT
 );
 
+-- Signal consumption is persistence metadata, not part of the Signal contract.
+CREATE TABLE IF NOT EXISTS consumed_signals (
+    signal_id TEXT PRIMARY KEY REFERENCES signals(id) ON DELETE CASCADE,
+    cycle_id TEXT NOT NULL REFERENCES update_cycles(id) ON DELETE CASCADE
+);
+
 -- Evidence references table
 CREATE TABLE IF NOT EXISTS evidence_references (
     id TEXT PRIMARY KEY,
@@ -131,6 +149,39 @@ CREATE TABLE IF NOT EXISTS simulated_events (
     processed INTEGER NOT NULL DEFAULT 0
 );
 
+-- Human operations are retained as a small audit trail for the local product.
+CREATE TABLE IF NOT EXISTS operator_actions (
+    id TEXT PRIMARY KEY,
+    region_id TEXT NOT NULL REFERENCES regions(id) ON DELETE CASCADE,
+    action TEXT NOT NULL,
+    detail TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL
+);
+
+-- Immutable, trace-linked correction lineage for agent-repaired signals.
+CREATE TABLE IF NOT EXISTS signal_corrections (
+    id TEXT PRIMARY KEY,
+    region_id TEXT NOT NULL REFERENCES regions(id) ON DELETE CASCADE,
+    source_signal_id TEXT NOT NULL REFERENCES signals(id),
+    corrected_signal_id TEXT NOT NULL UNIQUE REFERENCES signals(id),
+    cycle_id TEXT NOT NULL REFERENCES update_cycles(id),
+    trace_id TEXT NOT NULL,
+    before_json TEXT NOT NULL,
+    after_json TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE(source_signal_id, cycle_id, after_json)
+);
+
+-- A pending signal may be withdrawn without erasing its operator audit record.
+CREATE TABLE IF NOT EXISTS signal_deletions (
+    id TEXT PRIMARY KEY,
+    region_id TEXT NOT NULL,
+    signal_id TEXT NOT NULL,
+    signal_json TEXT NOT NULL,
+    removed_at TEXT NOT NULL
+);
+
 -- Indexes for common query patterns
 CREATE INDEX IF NOT EXISTS idx_signals_region ON signals(region_id);
 CREATE INDEX IF NOT EXISTS idx_signals_source ON signals(source_id);
@@ -138,4 +189,7 @@ CREATE INDEX IF NOT EXISTS idx_events_region_time ON event_windows(region_id, st
 CREATE INDEX IF NOT EXISTS idx_finance_region ON finance_assessments(region_id);
 CREATE INDEX IF NOT EXISTS idx_versions_region ON recommendation_versions(region_id);
 CREATE INDEX IF NOT EXISTS idx_cycles_region ON update_cycles(region_id);
+CREATE INDEX IF NOT EXISTS idx_actions_region ON operator_actions(region_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_consumed_cycle ON consumed_signals(cycle_id);
+CREATE INDEX IF NOT EXISTS idx_correction_region ON signal_corrections(region_id, created_at);
 """

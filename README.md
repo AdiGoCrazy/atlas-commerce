@@ -1,15 +1,16 @@
 # Atlas Commerce
 
-Atlas Commerce is a prototype for assessing candidate regions, ranking products for seeded active regions, and proposing bounded profile changes from synthetic signals. The demo uses fictional regions and simulated commerce results; it is not a production commerce system. Candidate approval, autonomous execution, evaluation, and rollback are not yet wired into the dashboard.
+<img src="./images/atlasagentdashboard.png" alt="atlas agent landing page">
+
+Atlas Commerce is a local operator workspace and a full, orchestrator agent for evaluating candidate regions, approving viable markets, and safely adapting regional product recommendations from synthetic signals. Financial and evaluation outcomes are simulated. External signal providers remain replaceable adapters, and partner integrations show explicit degraded status unless live operations are verified.
 
 ## How it works
 
-1. An operator submits a candidate region; the app stores it and a simulated finance assessment in SQLite.
-2. The dashboard displays local base/growth/downside results and may display a validated, operator-supplied cfo.ai export. No live cfo.ai MCP read is implemented.
-3. The dashboard previews rankings for seeded regions with active profiles. It does not approve candidates or run the autonomous worker.
-4. Application services can normalize fixture signals and propose bounded profile changes, but activation/evaluation/rollback are not connected as an end-to-end UI workflow.
-
-The planned product includes human approval, autonomous updates, and rollback. Those controls are not present in the current demo.
+1. An operator submits a candidate region and reviews its simulated base/growth/downside assessment.
+2. The operator explicitly approves or rejects the candidate; approval creates its first durable recommendation version.
+3. The operator injects synthetic evidence or processes unseen signals through a deterministic, bounded update cycle.
+4. Candidate and active recommendations are compared on the same simulated cohort; passing updates activate transactionally, while rejected or failed cycles preserve the active version.
+5. Operators can pause, resume, archive, rollback, inspect cycle history, replay a cycle, and reset the local demo.
 
 ## Architecture
 
@@ -67,19 +68,30 @@ uv run python -m compileall src tests app.py worker.py
 uv run streamlit run app.py
 ```
 
-The current app includes validated domain models, SQLite seeding and CRUD,
-lossless Decimal storage, deterministic ranking, candidate assessment, fixture
-signal normalization, and bounded profile proposal services. The Streamlit shell
-saves candidates and simulated assessments, and previews recommendations for
-seeded active regions. Activation and autonomous worker orchestration are not
-implemented in the dashboard.
+The app includes validated domain models, SQLite seeding and CRUD, lossless
+Decimal storage, deterministic ranking, candidate approval, bounded signal
+proposals, transactional activation/rollback, same-cohort simulated evaluation,
+cycle history, replay, and region-isolated retries. The Streamlit dashboard
+provides the operator controls and before/after storefront views. A local polling
+worker is available for scheduled runs.
 
-Run the shell with `uv run streamlit run app.py`. Set `ATLAS_DB_PATH` to use a
-different SQLite file. Tests use temporary databases and do not need credentials.
-Set `NEATLOGS_API_KEY` in the process environment to configure trace export;
-without it, the UI explicitly reports local-only tracing. A configured key does
-not prove live delivery: verify separately with
-`uv run python -m neatlogs doctor --probe --json` and record the returned evidence.
+The dashboard opens to a composer-first Atlas Assistant. A labeled sidebar links
+to Overview, Region operations, Recommendations, Activity & evidence, and
+Settings, and can collapse to an icon rail. The visual system follows Streamlit's
+active light or dark theme, uses restrained transitions, and honors reduced-motion
+preferences.
+
+Run the shell with `uv run streamlit run app.py`. Run one worker pass with
+`uv run python worker.py --once`, or start local polling with
+`uv run python worker.py --interval 300`. Set `ATLAS_DB_PATH` to use a different
+SQLite file. Tests use temporary databases and do not need credentials.
+Put `NEATLOGS_API_KEY` in the ignored repository `.env` file or export it in the
+shell; the app loads `.env` automatically and shell values take precedence.
+Without a key, the UI reports local-only tracing. Verify authenticated delivery
+with `uv run python -m neatlogs doctor --probe --json`. To read a specific trace
+from the CLI, also set `NEATLOGS_PROJECT_ID` and `NEATLOGS_TOKEN`; these are
+readback credentials and must never be committed. See [`docs/evidence.md`](docs/evidence.md)
+for the latest probe and Atlas workflow trace evidence.
 
 cfo.ai is currently degraded, with deterministic local simulation. The model
 includes revenue, product/fulfillment costs, campaign/inference/infrastructure
@@ -88,6 +100,32 @@ vary traffic by 1 / 1.25 / 0.75. Set `CFO_SCENARIO_PATH` to an operator-supplied
 JSON export matching `CfoScenarioImport` to inspect provider outputs/provenance;
 imported data is explicitly unverified and does not replace the local decision.
 No live cfo.ai success is claimed. The UI shows all financial assumptions.
+
+### Atlas Assistant and model providers
+
+Copy `.env.example` to `.env` and set `OPENROUTER_API_KEY`. The default model is
+`openrouter/free`, which selects a free model that supports the requested
+features such as tool calling; set `LLM_MODEL` to a specific OpenRouter
+model ID to change it. To use the official OpenAI endpoint instead, set
+`LLM_PROVIDER=openai`, provide `OPENAI_API_KEY`, and set `LLM_MODEL` to the
+account's model. Both use the official OpenAI-compatible Python SDK and
+Neatlogs instrumentation. The assistant can inspect Atlas data and the product
+catalog, preview recommendation changes through the deterministic ranker and
+evaluation gate, and inspect sanitized cycle trace metadata. Explicit requests
+can create/edit/soft-remove candidates, perform lifecycle actions, add synthetic
+signals, withdraw only unused signals with an audit copy, run or replay regional
+cycles, and create/edit/soft-remove shared catalog products.
+Candidate activation still uses the finance gate; recommendation versions change
+only through the deterministic cycle or rollback. Product and region removals
+preserve history. A specifically requested signal correction requires exact cycle
+trace readback and creates a new audited signal while retaining the original.
+
+For trace-guided signal correction, also configure `NEATLOGS_PROJECT_ID` and
+`NEATLOGS_TOKEN` for trace readback. A correction is stored as a new signal with
+an audit record; the original remains intact. Neatlogs masking redacts prompts
+and model response content before export. The dashboard discloses that relevant
+Atlas records may be sent to OpenRouter. Free model endpoints can be rate limited.
+See [docs/evidence.md](docs/evidence.md) for live verification state.
 
 See [`docs/evidence.md`](docs/evidence.md) for actual checks and integration
 blockers and [`SPRINT_PLAN.md`](SPRINT_PLAN.md) for the recovery ownership

@@ -1,4 +1,4 @@
-"""Streamlit entry point for the Sprint 1 dashboard."""
+"""Streamlit entry point for the Atlas Commerce operator workspace."""
 
 import sys
 from pathlib import Path

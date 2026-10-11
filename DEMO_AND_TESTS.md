@@ -46,6 +46,7 @@ sequenceDiagram
 5. Show the viability score, expected profit, and opportunity cost.
 6. Approve the region.
 7. Show the region entering `active` with a default recommendation profile.
+8. Pause and resume the region, then confirm paused regions are skipped by worker runs.
 
 ### Scenario B — autonomous update changes products
 
@@ -57,6 +58,21 @@ sequenceDiagram
 6. Show products promoted and demoted.
 7. Show the new top-five products in the storefront preview.
 8. Show the neatlogs trace containing the cycle and recommendation update.
+9. Roll back to the parent version and show the active top five returning to its prior state.
+
+After a signal is consumed, the dashboard shows zero pending signals and disables
+the one-region run button. Add fresh synthetic evidence before starting another
+cycle. A no-signal cycle is a no-op, not a successful recommendation update.
+
+### Confidence sensitivity check
+
+Use Aspen Ridge so the Cedar fixture signal is not mixed into the experiment.
+Reset before each trial, submit one `festival` signal with the same evidence,
+and compare confidence `0.65`, `0.70`, and `0.80`. The first is rejected by the
+confidence gate, `0.70` should activate and bring LED String Lights into the
+top five, and `0.80` should propose a larger change that the simulated profit
+guardrail rejects. Identical synthetic submissions reuse one source ID; change
+the evidence excerpt when you intend to add a genuinely separate observation.
 
 ### Scenario C — rejected update and recovery
 
@@ -66,6 +82,12 @@ sequenceDiagram
 4. Keep the active recommendation version unchanged.
 5. Show the rejection in the UI and neatlogs.
 6. Confirm that the next cycle can continue.
+
+### Scenario E — operator replay and reset
+
+1. Select a saved cycle from Activity & evidence and replay its exact signal IDs.
+2. Confirm replay creates a new cycle record and leaves prior history intact.
+3. Reset the workspace from Settings and confirm fixtures restore the initial state.
 
 The update outcome is a UML state model:
 
@@ -108,6 +130,9 @@ Show:
 - Simulated sales use the same customer cohort for active and candidate comparisons.
 - A cfo.ai outage is shown as degraded/fallback, not falsely reported as success.
 - Missing neatlogs credentials make integration status explicit.
+- A paused or archived region is never processed by the all-region worker.
+- A replay creates a new cycle and keeps the source cycle immutable.
+- Reset clears local operator history and restores the checked-in fixture set.
 - All secrets are absent from source, fixtures, logs, and evidence.
 
 ## Focused automated tests
@@ -167,6 +192,7 @@ uv sync
 uv run pytest
 uv run python -m compileall src tests app.py worker.py
 uv run streamlit run app.py
+uv run python worker.py --once
 ```
 
 Record the exact commands and results in the project README before submission.

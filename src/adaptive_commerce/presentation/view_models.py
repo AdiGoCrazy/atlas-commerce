@@ -72,6 +72,40 @@ def prepare_ranking_comparison(
     return rows
 
 
+def prepare_cycle_comparison_rows(
+    before: list[dict],
+    after: list[dict],
+    catalog: dict,
+) -> list[dict[str, str]]:
+    """Prepare Arrow-safe display rows for persisted recommendation comparisons."""
+    before_by_id = {item["product_id"]: item for item in before}
+    after_by_id = {item["product_id"]: item for item in after}
+    rows = []
+    for product_id in sorted(set(before_by_id) | set(after_by_id)):
+        old = before_by_id.get(product_id)
+        new = after_by_id.get(product_id)
+        product = catalog.get(product_id)
+        old_rank = old["rank"] if old else None
+        new_rank = new["rank"] if new else None
+        if old_rank is not None and new_rank is not None and new_rank < old_rank:
+            movement = f"↑ {old_rank - new_rank}"
+        elif old_rank is not None and new_rank is not None and new_rank > old_rank:
+            movement = f"↓ {new_rank - old_rank}"
+        elif new_rank is not None and old_rank is None:
+            movement = "New"
+        elif old_rank is not None and new_rank is None:
+            movement = "Removed"
+        else:
+            movement = "—"
+        rows.append({
+            "Product": product.name if product else product_id,
+            "Before": str(old_rank) if old_rank is not None else "—",
+            "After": str(new_rank) if new_rank is not None else "—",
+            "Movement": movement,
+        })
+    return rows
+
+
 def prepare_approval_state(state: str) -> dict:
     """Prepare approval controls for a region's lifecycle state."""
 

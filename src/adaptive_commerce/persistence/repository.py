@@ -212,6 +212,34 @@ class Repository:
         ).fetchall()
         return [self._row_to_signal(row) for row in rows]
 
+    def get_unprocessed_signals(self, region_id: str, limit: int = 100) -> list[Signal]:
+        """Return signals not yet consumed by a completed region cycle."""
+        if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
+            raise ValueError("limit must be a positive integer")
+        rows = self.conn.execute(
+            "SELECT s.* FROM signals s LEFT JOIN consumed_signals c ON c.signal_id = s.id "
+            "WHERE s.region_id = ? AND c.signal_id IS NULL ORDER BY s.observed_at, s.id LIMIT ?",
+            (region_id, limit),
+        ).fetchall()
+        return [self._row_to_signal(row) for row in rows]
+
+    def count_unprocessed_signals(self, region_id: str) -> int:
+        """Count unconsumed signals waiting for a regional cycle."""
+        row = self.conn.execute(
+            "SELECT COUNT(*) FROM signals s LEFT JOIN consumed_signals c "
+            "ON c.signal_id = s.id WHERE s.region_id = ? AND c.signal_id IS NULL",
+            (region_id,),
+        ).fetchone()
+        return int(row[0])
+
+    def mark_signals_processed(self, signal_ids: list[str], cycle_id: str) -> None:
+        """Mark source evidence consumed in the same transaction as its cycle."""
+        for signal_id in signal_ids:
+            self.conn.execute(
+                "INSERT OR IGNORE INTO consumed_signals (signal_id, cycle_id) VALUES (?, ?)",
+                (signal_id, cycle_id),
+            )
+
     def create_signal(self, signal: Signal) -> bool:
         """Create a new signal. Returns False if source_id already exists (idempotent)."""
         try:
@@ -329,6 +357,91 @@ class Repository:
         ).fetchall()
         return [self._row_to_recommendation_version(row) for row in rows]
 
+    def create_update_cycle(self, cycle: UpdateCycle) -> None:
+        """Persist a cycle record with its validated input and output summary."""
+        self.conn.execute(
+            """INSERT INTO update_cycles
+            (id, region_id, signal_ids, proposed_changes, status, rejection_reason,
+             evaluation, created_at, finished_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                cycle.id, cycle.region_id, _json_dumps(cycle.signal_ids),
+                _json_dumps(cycle.proposed_changes) if cycle.proposed_changes is not None else None,
+                cycle.status.value, cycle.rejection_reason,
+                _json_dumps(cycle.evaluation) if cycle.evaluation is not None else None,
+                cycle.created_at.isoformat(),
+                cycle.finished_at.isoformat() if cycle.finished_at else None,
+            ),
+        )
+
+    def update_update_cycle(self, cycle: UpdateCycle) -> None:
+        """Update the terminal details of a previously persisted cycle."""
+        self.conn.execute(
+            """UPDATE update_cycles SET signal_ids = ?, proposed_changes = ?, status = ?,
+            rejection_reason = ?, evaluation = ?, finished_at = ? WHERE id = ?""",
+            (
+                _json_dumps(cycle.signal_ids),
+                _json_dumps(cycle.proposed_changes) if cycle.proposed_changes is not None else None,
+                cycle.status.value, cycle.rejection_reason,
+                _json_dumps(cycle.evaluation) if cycle.evaluation is not None else None,
+                cycle.finished_at.isoformat() if cycle.finished_at else None,
+                cycle.id,
+            ),
+        )
+
+    def get_update_cycle(self, cycle_id: str) -> UpdateCycle | None:
+        """Load one cycle by stable identifier."""
+        row = self.conn.execute(
+            "SELECT * FROM update_cycles WHERE id = ?", (cycle_id,)
+        ).fetchone()
+        return self._row_to_update_cycle(row) if row else None
+
+    def list_update_cycles(self, region_id: str, limit: int = 50) -> list[UpdateCycle]:
+        """Return recent cycles for the region, newest first."""
+        if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
+            raise ValueError("limit must be a positive integer")
+        rows = self.conn.execute(
+            "SELECT * FROM update_cycles WHERE region_id = ? "
+            "ORDER BY created_at DESC, id DESC LIMIT ?",
+            (region_id, limit),
+        ).fetchall()
+        return [self._row_to_update_cycle(row) for row in rows]
+
+    def _row_to_update_cycle(self, row: sqlite3.Row) -> UpdateCycle:
+        data = dict(row)
+        data["signal_ids"] = _json_loads(data["signal_ids"])
+        data["proposed_changes"] = {
+            key: Decimal(str(value))
+            for key, value in _json_loads(data.get("proposed_changes")).items()
+        } if data.get("proposed_changes") else None
+        data["status"] = UpdateCycleStatus(data["status"])
+        data["evaluation"] = _json_loads(data["evaluation"]) if data.get("evaluation") else None
+        data["created_at"] = datetime.fromisoformat(data["created_at"])
+        data["finished_at"] = datetime.fromisoformat(data["finished_at"]) if data.get("finished_at") else None
+        return UpdateCycle.model_validate(data)
+
+    def create_operator_action(
+        self, action_id: str, region_id: str, action: str,
+        detail: dict[str, Any], created_at: datetime,
+    ) -> None:
+        """Record a human control action for review and recovery history."""
+        self.conn.execute(
+            "INSERT INTO operator_actions (id, region_id, action, detail, created_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (action_id, region_id, action, _json_dumps(detail), created_at.isoformat()),
+        )
+
+    def list_operator_actions(self, region_id: str, limit: int = 50) -> list[dict[str, Any]]:
+        """Return recent human actions for the selected region."""
+        rows = self.conn.execute(
+            "SELECT * FROM operator_actions WHERE region_id = ? "
+            "ORDER BY created_at DESC, id DESC LIMIT ?",
+            (region_id, limit),
+        ).fetchall()
+        return [
+            {**dict(row), "detail": _json_loads(row["detail"])} for row in rows
+        ]
+
     def create_recommendation_version(self, version: RecommendationVersion) -> None:
         """Create a new recommendation version (immutable — no updates)."""
         self.conn.execute(
@@ -383,6 +496,7 @@ class Repository:
             ).fetchone()
             if target is None or profile is None or target["status"] not in {
                 VersionStatus.candidate.value, VersionStatus.active.value,
+                VersionStatus.rolled_back.value,
             }:
                 self.conn.execute("ROLLBACK TO SAVEPOINT activate_version")
                 self.conn.execute("RELEASE SAVEPOINT activate_version")
@@ -418,6 +532,15 @@ class Repository:
         self.conn.execute("RELEASE SAVEPOINT activate_version")
         return True
 
+    def reject_recommendation_version(self, version_id: str) -> bool:
+        """Mark an unused candidate version rejected without changing active state."""
+        cur = self.conn.execute(
+            "UPDATE recommendation_versions SET status = ? "
+            "WHERE id = ? AND status = ?",
+            (VersionStatus.rejected.value, version_id, VersionStatus.candidate.value),
+        )
+        return cur.rowcount == 1
+
     def _row_to_region_profile(self, row: sqlite3.Row) -> RegionProfile:
         data = dict(row)
         data["weights"] = {
@@ -452,7 +575,7 @@ class Repository:
         """Create a new event window."""
         self.conn.execute(
             """
-            INSERT INTO event_windows (id, region_id, starts_at, expires_at, boosts)
+            INSERT OR IGNORE INTO event_windows (id, region_id, starts_at, expires_at, boosts)
             VALUES (?, ?, ?, ?, ?)
             """,
             (
