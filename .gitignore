@@ -13,3 +13,4 @@ __pycache__/
 docs/evidence.local.md
 *.log
 .DS_Store
+.opencode
