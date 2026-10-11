@@ -30,6 +30,23 @@ neatlogs traces/evaluations       Entire development context/checkpoints
 
 ## Components
 
+### Agent workflow runtime
+
+Docker Compose can deploy a local HTTP coordinator and isolated same-model
+specialists for planning, research, finance, deterministic recommendation review,
+and plan review. Workers have no database mount or direct write route. The
+coordinator validates structured output, checks each proposed operation against
+the direct operator request, and persists an immutable plan. When a request both
+creates a candidate and explicitly asks to cycle it, the plan may include activation
+between those steps; the direct create-and-cycle request authorizes that activation
+prerequisite, which still passes the deterministic finance gate. Authorization is tied
+to the canonical plan hash. Workers can invoke only validated action IDs through the
+coordinator's internal endpoint, which calls existing Atlas application services.
+Permanent deletion requires explicit intent and a review card containing the
+exact row snapshot and dependent-record counts; execution rechecks both in an
+immediate SQLite transaction and retains an audit snapshot. The dashboard and
+coordinator share the local SQLite volume and bind host ports only to localhost.
+
 ### Presentation layer
 
 Streamlit provides the demo dashboard. It displays region states, finance assessments, signals, rankings, update proposals, and evidence. It calls application services and does not contain ranking or integration logic.
@@ -41,7 +58,7 @@ Responsibilities:
 - register candidate regions;
 - request viability assessment;
 - store assessment results;
-- activate or reject a region after human approval;
+- activate a region after a direct request and passing finance gate, or reject it;
 - pause, resume, or archive a region;
 - expose the current lifecycle state.
 

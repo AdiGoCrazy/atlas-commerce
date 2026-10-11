@@ -7,7 +7,7 @@ Atlas Commerce is a local operator workspace and a full, orchestrator agent for 
 ## How it works
 
 1. An operator submits a candidate region and reviews its simulated base/growth/downside assessment.
-2. The operator explicitly approves or rejects the candidate; approval creates its first durable recommendation version.
+2. The operator requests activation or rejection; activation creates the first durable recommendation version only when the finance gate passes.
 3. The operator injects synthetic evidence or processes unseen signals through a deterministic, bounded update cycle.
 4. Candidate and active recommendations are compared on the same simulated cohort; passing updates activate transactionally, while rejected or failed cycles preserve the active version.
 5. Operators can pause, resume, archive, rollback, inspect cycle history, replay a cycle, and reset the local demo.
@@ -111,17 +111,26 @@ model ID to change it. To use the official OpenAI endpoint instead, set
 account's model. Both use the official OpenAI-compatible Python SDK and
 Neatlogs instrumentation. The assistant can inspect Atlas data and the product
 catalog, preview recommendation changes through the deterministic ranker and
-evaluation gate, and inspect sanitized cycle trace metadata. Explicit requests
-can create/edit/soft-remove candidates, perform lifecycle actions, add synthetic
-signals, withdraw only unused signals with an audit copy, run or replay regional
-cycles, and create/edit/soft-remove shared catalog products.
-Every write is rechecked against positive intent in the current user message
-before execution; negated and hypothetical requests cannot trigger mutations.
+evaluation gate, and inspect sanitized cycle trace metadata. Read-only questions
+and single explicit operations stay on the existing assistant path. Chained
+requests and requests containing multiple write operations go to the specialist
+workflow. The direct request authorizes validated, allowlisted operations without a second approval click. Operations include candidate create/update/removal, lifecycle changes,
+synthetic signal add/remove/repair, regional cycles and replay, catalog
+create/update/removal, and explicitly requested hard deletion. Each proposed
+operation is rechecked against positive intent in the current user message;
+negated and hypothetical requests cannot trigger mutations.
 Candidate activation still uses the finance gate; recommendation versions change
 only through the deterministic cycle or rollback. Saved-version comparisons use
 active event windows and policy at one shared evaluation time. Product and region removals
 preserve history. A specifically requested signal correction requires exact cycle
 trace readback and creates a new audited signal while retaining the original.
+Imperative multi-step wording such as “setup a region, add confidence inputs,
+cycle them, and compare results” also opens a reviewable workflow, even when
+the request uses terms that do not exactly match a tool name. A chat-started
+workflow remains linked from its assistant reply through **Open agent workflow**. Short affirmative replies after an assistant confirmation question continue the preceding chained request rather than being sent as an isolated tool query.
+If the model emits internal-style deliberation instead of a user-facing answer,
+the assistant suppresses it and returns a grounded response or a concise retry
+request.
 
 For trace-guided signal correction, also configure `NEATLOGS_PROJECT_ID` and
 `NEATLOGS_TOKEN` for trace readback. A correction is stored as a new signal with
@@ -129,6 +138,52 @@ an audit record; the original remains intact. Neatlogs masking redacts prompts
 and model response content before export. The dashboard discloses that relevant
 Atlas records may be sent to OpenRouter. Free model endpoints can be rate limited.
 See [docs/evidence.md](docs/evidence.md) for live verification state.
+
+### Multi-agent workflows
+
+Docker Compose deploys planner, research, finance, recommendation, and review
+specialists as separate local worker containers. All workers share the selected
+`LLM_PROVIDER` and `LLM_MODEL`. They propose structured application operations;
+Atlas checks that each operation matches the operator request and saves the full
+plan. The direct operator request authorizes its validated, allowlisted operations;
+no second approval click is required. Requested work runs through existing Atlas
+application services and the deterministic engine. Permanent deletion requires an explicit
+permanent-delete request, shows the target snapshot and dependent-record counts,
+rechecks both before removal, and retains an audit snapshot.
+Free OpenRouter routes can be slow; `LLM_TIMEOUT_SECONDS` defaults to 90 seconds
+and the coordinator allows a bounded 100-second worker response. The workflow
+page shows each executed cycle's status, rejection reason, before/after rankings,
+and simulated evaluation. Candidate regions remain inactive until a directly requested activation passes
+the deterministic finance gate; a pending candidate cannot run cycles.
+
+Run the dashboard, coordinator, and five workers locally:
+
+```bash
+cp .env.example .env
+# Add OPENROUTER_API_KEY and optionally NEATLOGS_API_KEY to .env
+docker compose up --build
+```
+
+Open <http://localhost:8501>. Use **Agent workflows** or ask Atlas to perform an
+operation. Example: “Add a festival signal to Cedar Valley at confidence 0.91,
+run its regional cycle, and report the recommendation changes.” Review specialist
+findings and each operation while it runs. Use this command for local diagnostics:
+
+```bash
+docker compose logs -f orchestrator planner-agent research-agent finance-agent recommendation-agent review-agent
+```
+
+The internal token is only for the isolated
+Compose network; change `ATLAS_INTERNAL_TOKEN` before a shared deployment. The
+dashboard and API bind to localhost; this prototype is not an internet-facing,
+multi-user service. `docker compose down` preserves the named SQLite volume;
+`docker compose down -v` removes its database and workflow history.
+
+The finance specialist reviews Atlas finance records and provider status; deploying
+it does not establish a live cfo.ai connection. cfo.ai remains degraded until an
+authenticated model/scenario operation is verified. Neatlogs export is enabled
+with `NEATLOGS_API_KEY`, while live trace readback additionally needs project and
+token credentials. Entire remains development evidence, not a runtime worker.
 
 See [`docs/evidence.md`](docs/evidence.md) for actual checks and integration
 blockers and [`SPRINT_PLAN.md`](SPRINT_PLAN.md) for the recovery ownership

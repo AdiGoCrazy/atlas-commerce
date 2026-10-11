@@ -177,4 +177,20 @@ cfo.ai scenario:
 cfo.ai business plan:
 ```
 
+## Specialist workflow runtime
+
+Compose deploys five separate specialist processes against the one configured
+OpenRouter or OpenAI model. Their duties are planning, Atlas evidence research,
+finance review, deterministic recommendation review, and independent plan
+review. Structured output and direct user intent are validated before the plan is
+offered. The coordinator alone connects to SQLite. After request-scope validation, workers
+send the authorized workflow ID, action ID, role, and plan hash to the internal
+execution endpoint, and Atlas applies the action through existing services.
+Deletion plans capture and recheck the exact target snapshot and dependent rows,
+then leave a durable deletion audit. Neatlogs-wrapped model calls and workflow
+spans provide runtime observability. Starting a finance worker is not evidence of
+a live cfo.ai connection; status remains degraded until a real authenticated
+scenario operation is verified. Entire is a development evidence tool, not a
+runtime specialist.
+
 Do not put secrets or private customer data in the evidence manifest.

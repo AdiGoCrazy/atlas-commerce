@@ -1,0 +1,107 @@
+services:
+  dashboard:
+    build: .
+    command: ["streamlit", "run", "app.py", "--server.address=0.0.0.0", "--server.port=8501"]
+    ports:
+      - "127.0.0.1:8501:8501"
+    environment:
+      ATLAS_DB_PATH: /app/data/atlas_commerce.db
+      ATLAS_ORCHESTRATOR_URL: http://orchestrator:8502
+      LLM_PROVIDER: ${LLM_PROVIDER:-openrouter}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-openrouter/free}
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-90}
+      NEATLOGS_API_KEY: ${NEATLOGS_API_KEY:-}
+      NEATLOGS_PROJECT_ID: ${NEATLOGS_PROJECT_ID:-}
+      NEATLOGS_TOKEN: ${NEATLOGS_TOKEN:-}
+      CFO_SCENARIO_PATH: ${CFO_SCENARIO_PATH:-}
+    volumes:
+      - atlas-data:/app/data
+    depends_on:
+      orchestrator:
+        condition: service_healthy
+
+  orchestrator:
+    build: .
+    command: ["python", "orchestrator.py"]
+    ports:
+      - "127.0.0.1:8502:8502"
+    environment:
+      ATLAS_DB_PATH: /app/data/atlas_commerce.db
+      ATLAS_INTERNAL_TOKEN: ${ATLAS_INTERNAL_TOKEN:-atlas-compose-local-internal-token}
+      ATLAS_AGENT_PLANNER_URL: http://planner-agent:8503
+      ATLAS_AGENT_RESEARCH_URL: http://research-agent:8503
+      ATLAS_AGENT_FINANCE_URL: http://finance-agent:8503
+      ATLAS_AGENT_RECOMMENDATION_URL: http://recommendation-agent:8503
+      ATLAS_AGENT_REVIEW_URL: http://review-agent:8503
+      LLM_PROVIDER: ${LLM_PROVIDER:-openrouter}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-openrouter/free}
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-90}
+      NEATLOGS_API_KEY: ${NEATLOGS_API_KEY:-}
+      NEATLOGS_PROJECT_ID: ${NEATLOGS_PROJECT_ID:-}
+      NEATLOGS_TOKEN: ${NEATLOGS_TOKEN:-}
+      LOG_LEVEL: ${ATLAS_LOG_LEVEL:-INFO}
+    volumes:
+      - atlas-data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8502/healthz', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+
+  planner-agent:
+    <<: &agent
+      build: .
+      command: ["python", "agent_worker.py"]
+      depends_on:
+        orchestrator:
+          condition: service_healthy
+      healthcheck: &agent-healthcheck
+        test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8503/healthz', timeout=2)"]
+        interval: 5s
+        timeout: 3s
+        retries: 15
+    environment: &agent-environment
+      ATLAS_AGENT_ROLE: planner
+      ATLAS_INTERNAL_TOKEN: ${ATLAS_INTERNAL_TOKEN:-atlas-compose-local-internal-token}
+      ATLAS_ORCHESTRATOR_INTERNAL_URL: http://orchestrator:8502/v1/internal/execute
+      LLM_PROVIDER: ${LLM_PROVIDER:-openrouter}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-openrouter/free}
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-90}
+      NEATLOGS_API_KEY: ${NEATLOGS_API_KEY:-}
+
+  research-agent:
+    <<: *agent
+    environment:
+      <<: *agent-environment
+      ATLAS_AGENT_ROLE: research
+    healthcheck: *agent-healthcheck
+
+  finance-agent:
+    <<: *agent
+    environment:
+      <<: *agent-environment
+      ATLAS_AGENT_ROLE: finance
+    healthcheck: *agent-healthcheck
+
+  recommendation-agent:
+    <<: *agent
+    environment:
+      <<: *agent-environment
+      ATLAS_AGENT_ROLE: recommendation
+    healthcheck: *agent-healthcheck
+
+  review-agent:
+    <<: *agent
+    environment:
+      <<: *agent-environment
+      ATLAS_AGENT_ROLE: review
+    healthcheck: *agent-healthcheck
+
+volumes:
+  atlas-data:

@@ -182,6 +182,72 @@ CREATE TABLE IF NOT EXISTS signal_deletions (
     removed_at TEXT NOT NULL
 );
 
+-- Operator-approved, multi-agent workflows and their durable execution ledger.
+CREATE TABLE IF NOT EXISTS agent_workflows (
+    id TEXT PRIMARY KEY,
+    request TEXT NOT NULL,
+    title TEXT NOT NULL DEFAULT '',
+    summary TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL,
+    plan_hash TEXT,
+    plan_json TEXT NOT NULL DEFAULT '{}',
+    result_json TEXT NOT NULL DEFAULT '{}',
+    trace_id TEXT,
+    error TEXT,
+    approved_by TEXT,
+    approved_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS agent_workflow_steps (
+    id TEXT PRIMARY KEY,
+    workflow_id TEXT NOT NULL REFERENCES agent_workflows(id) ON DELETE CASCADE,
+    role TEXT NOT NULL,
+    duty TEXT NOT NULL,
+    status TEXT NOT NULL,
+    label TEXT NOT NULL,
+    summary TEXT NOT NULL DEFAULT '',
+    result_json TEXT NOT NULL DEFAULT '{}',
+    started_at TEXT,
+    finished_at TEXT,
+    updated_at TEXT NOT NULL,
+    UNIQUE(workflow_id, role)
+);
+CREATE TABLE IF NOT EXISTS agent_workflow_actions (
+    id TEXT PRIMARY KEY,
+    workflow_id TEXT NOT NULL REFERENCES agent_workflows(id) ON DELETE CASCADE,
+    ordinal INTEGER NOT NULL,
+    agent_role TEXT NOT NULL,
+    tool_name TEXT NOT NULL,
+    arguments_json TEXT NOT NULL,
+    rationale TEXT NOT NULL,
+    impact TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    result_json TEXT NOT NULL DEFAULT '{}',
+    error TEXT,
+    created_at TEXT NOT NULL,
+    finished_at TEXT,
+    UNIQUE(workflow_id, ordinal)
+);
+CREATE TABLE IF NOT EXISTS agent_workflow_events (
+    id TEXT PRIMARY KEY,
+    workflow_id TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    actor TEXT NOT NULL,
+    detail_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS workflow_deletion_audit (
+    id TEXT PRIMARY KEY,
+    workflow_id TEXT NOT NULL,
+    target_type TEXT NOT NULL,
+    target_id TEXT NOT NULL,
+    snapshot_json TEXT NOT NULL,
+    dependency_summary_json TEXT NOT NULL DEFAULT '{}',
+    approved_by TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
 -- Indexes for common query patterns
 CREATE INDEX IF NOT EXISTS idx_signals_region ON signals(region_id);
 CREATE INDEX IF NOT EXISTS idx_signals_source ON signals(source_id);
@@ -192,4 +258,9 @@ CREATE INDEX IF NOT EXISTS idx_cycles_region ON update_cycles(region_id);
 CREATE INDEX IF NOT EXISTS idx_actions_region ON operator_actions(region_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_consumed_cycle ON consumed_signals(cycle_id);
 CREATE INDEX IF NOT EXISTS idx_correction_region ON signal_corrections(region_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_agent_workflows_updated ON agent_workflows(updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_agent_workflow_steps_workflow ON agent_workflow_steps(workflow_id, updated_at);
+CREATE INDEX IF NOT EXISTS idx_agent_workflow_actions_workflow ON agent_workflow_actions(workflow_id, ordinal);
+CREATE INDEX IF NOT EXISTS idx_agent_workflow_events_workflow ON agent_workflow_events(workflow_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_workflow_deletions_target ON workflow_deletion_audit(target_type, target_id);
 """

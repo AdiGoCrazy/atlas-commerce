@@ -45,8 +45,10 @@ def get_llm_client() -> Any | None:
     initialize_tracing()
     options: dict[str, Any] = {
         "api_key": api_key,
-        "timeout": float(os.getenv("LLM_TIMEOUT_SECONDS", "25")),
-        "max_retries": 1,
+        # Free OpenRouter routes can queue longer than ordinary API calls.
+        # The orchestrator applies a slightly larger HTTP timeout around this.
+        "timeout": float(os.getenv("LLM_TIMEOUT_SECONDS", "90")),
+        "max_retries": 0,
     }
     if provider == "OpenRouter":
         options["base_url"] = os.getenv("OPENROUTER_BASE_URL", OPENROUTER_BASE_URL)

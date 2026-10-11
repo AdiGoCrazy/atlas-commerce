@@ -8,7 +8,7 @@ import pytest
 import adaptive_commerce.application.assistant as assistant_module
 from adaptive_commerce.application.assistant import (
     _action_request_allowed, _available_tools, _execute_tool, ask_assistant,
-    repair_signal_from_trace,
+    repair_signal_from_trace, requires_agent_workflow,
 )
 from adaptive_commerce.application.dashboard import (
     CandidateRequest, bootstrap_database, submit_candidate,
@@ -64,6 +64,40 @@ def test_assistant_uses_allowlisted_read_tool_and_returns_evidence(tmp_path, mon
     tool_names = {tool["function"]["name"] for tool in client.requests[0]["tools"]}
     assert "repair_signal" not in tool_names
     assert client.requests[0]["model"] == DEFAULT_MODEL
+
+
+@pytest.mark.parametrize(
+    ("question", "expected"),
+    [
+        ("Summarize the current portfolio.", False),
+        ("Add a synthetic event signal to Cedar Valley.", False),
+        ("Add a synthetic event signal to Cedar Valley, then run its regional cycle.", True),
+        (
+            "Do a full chained workflow, setup a new custom region called test beach, add festival products, "
+            "then add confidence inputs, cycle them and compare results between cycles.",
+            True,
+        ),
+        ("Permanently delete this region.", True),
+        ("Don't permanently delete this region; just explain its status.", False),
+    ],
+)
+def test_agent_workflow_routing_is_limited_to_chained_or_destructive_work(question, expected):
+    assert requires_agent_workflow(question) is expected
+
+
+def test_assistant_suppresses_internal_deliberation_when_model_returns_it(tmp_path, monkeypatch):
+    monkeypatch.setenv("LLM_MODEL", DEFAULT_MODEL)
+    bootstrap_database(tmp_path / "atlas.db")
+    client = FakeClient([_response(_message(
+        "Let me think. The user is asking me to create a region, but I need to check available tools."
+    ))])
+
+    result = ask_assistant(tmp_path / "atlas.db", "What does the current portfolio contain?", client=client)
+
+    assert "Let me think" not in result.answer
+    assert "available tools" not in result.answer
+    assert "verified Atlas records" in result.answer
+    assert any("suppressed" in notice for notice in result.notices)
 
 
 def test_assistant_degrades_without_openrouter_key(tmp_path, monkeypatch):
@@ -240,7 +274,7 @@ def test_explicit_candidate_create_is_exposed_and_empty_model_reply_uses_result(
     assert "create_candidate_region" in exposed
     assert "set_region_lifecycle" not in exposed
     assert result.status == "answered"
-    assert "pending operator approval" in result.answer
+    assert "remains a candidate" in result.answer
     assert "simulated" in result.answer
     with connect(path) as conn:
         region = Repository(conn).get_region(result.evidence[0].record_id)
@@ -318,6 +352,9 @@ def test_chat_pipeline_tools_add_synthetic_signal_and_run_engine(tmp_path):
     assert cycle["status"] == "cycle_completed"
     assert "Festival Bay" in cycle["summary"]
     assert cycle["cycle_id"]
+    assert "before_rankings" in cycle
+    assert "after_rankings" in cycle
+    assert "rejection_reason" in cycle
     assert replay["status"] == "cycle_completed"
     assert replay["cycle_id"] != cycle["cycle_id"]
     assert "Replayed cycle" in replay["summary"]
