@@ -115,8 +115,11 @@ evaluation gate, and inspect sanitized cycle trace metadata. Explicit requests
 can create/edit/soft-remove candidates, perform lifecycle actions, add synthetic
 signals, withdraw only unused signals with an audit copy, run or replay regional
 cycles, and create/edit/soft-remove shared catalog products.
+Every write is rechecked against positive intent in the current user message
+before execution; negated and hypothetical requests cannot trigger mutations.
 Candidate activation still uses the finance gate; recommendation versions change
-only through the deterministic cycle or rollback. Product and region removals
+only through the deterministic cycle or rollback. Saved-version comparisons use
+active event windows and policy at one shared evaluation time. Product and region removals
 preserve history. A specifically requested signal correction requires exact cycle
 trace readback and creates a new audited signal while retaining the original.
 

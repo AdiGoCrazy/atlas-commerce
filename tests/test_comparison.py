@@ -1,13 +1,13 @@
 """Tests for the read-only application-layer ranking comparison service."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
 
 from adaptive_commerce.application.dashboard import bootstrap_database
 from adaptive_commerce.application.comparison import compare_recommendations
-from adaptive_commerce.domain import RecommendationVersion, VersionStatus
+from adaptive_commerce.domain import EventWindow, RecommendationVersion, VersionStatus
 from adaptive_commerce.persistence import Repository, connect
 from adaptive_commerce.recommender import ranking
 
@@ -22,15 +22,24 @@ def test_comparison_ranks_both_same_region_versions_once_at_same_time_without_wr
         weights={"festival": Decimal("8")}, status=VersionStatus.candidate,
         created_at=datetime(2026, 10, 1, tzinfo=timezone.utc),
     )
-    with connect(path) as conn:
-        Repository(conn).create_recommendation_version(candidate)
-
     timestamp = datetime(2026, 10, 10, 12, tzinfo=timezone.utc)
+    event = EventWindow(
+        id="festival-comparison-event",
+        region_id="cedar",
+        starts_at=timestamp,
+        expires_at=timestamp + timedelta(hours=1),
+        boosts={"festival": Decimal("3")},
+    )
+    with connect(path) as conn:
+        repository = Repository(conn)
+        repository.create_recommendation_version(candidate)
+        repository.create_event_window(event)
+
     calls = []
     original_rank = ranking.rank_products
 
     def capture_call(products, profile, *, now, policy=None, **kwargs):
-        calls.append((profile.region_id, profile.active_version_id, now, policy, products))
+        calls.append((profile.region_id, profile.active_version_id, now, policy, products, kwargs.get("events")))
         return original_rank(products, profile, now=now, policy=policy, **kwargs)
 
     monkeypatch.setattr("adaptive_commerce.application.comparison.rank_products", capture_call)
@@ -46,7 +55,13 @@ def test_comparison_ranks_both_same_region_versions_once_at_same_time_without_wr
     assert [call[1] for call in calls] == ["v-cedar-1", "cedar-candidate"]
     assert all(call[0] == "cedar" and call[2] == timestamp for call in calls)
     assert calls[0][4] == calls[1][4]
+    assert calls[0][5] == calls[1][5]
+    assert event.id in {item.id for item in calls[0][5]}
     assert len(result.before) == len(result.after) == 5
+    assert all(
+        any(item.breakdown.temporary_event_boost > 0 for item in ranked)
+        for ranked in (result.before, result.after)
+    )
     assert [item.product_id for item in result.before] != [item.product_id for item in result.after]
     with connect(path) as conn:
         assert conn.execute("SELECT COUNT(*) FROM recommendation_versions").fetchone()[0] == before_count

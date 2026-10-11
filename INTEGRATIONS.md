@@ -71,7 +71,8 @@ the default (`openrouter/free`), which routes to an eligible free model; set `LL
 Tool calls are allowlisted and bounded. Read tools expose Atlas snapshots,
 the product catalog, sanitized trace summaries, and deterministic recommendation
 previews. Write tools are only included when the user's current message explicitly
-requests the matching action. The assistant can create and edit pending candidates
+requests the matching action, and the same positive-intent check is repeated before
+any write executes; negated and hypothetical requests are rejected. The assistant can create and edit pending candidates
 and their simulated financial assumptions, soft-remove a candidate or region,
 perform explicitly requested lifecycle transitions, add synthetic signals,
 withdraw a signal only while it is pending and unreferenced by cycle history,
@@ -88,7 +89,8 @@ discloses that queried Atlas records may be sent to the configured model provide
 Prompt and model response content are masked from Neatlogs export, while span
 metadata, error types, and status remain available. If a provider returns no final
 text, Atlas summarizes the verified application-tool output instead of presenting
-an empty answer.
+an empty answer. Saved-version comparisons rank both versions at the same timestamp
+with the region's active event windows and ranking policy, matching live ranking.
 
 Trace readback requires `NEATLOGS_PROJECT_ID` and `NEATLOGS_TOKEN` in addition
 to export configuration. If these are absent or the exact trace cannot be

@@ -143,6 +143,7 @@ Candidate removal is a soft rejection and active/paused region removal is an arc
 change them by adding evidence and running the deterministic regional cycle, replaying a previous cycle, or restoring a version with rollback. Catalog product create, update, and removal are explicit global actions; removal disables stock and eligibility while retaining historical references and a durable audit row.
 For a new catalog product, collect a product ID, name, price, and cost rather than inventing commercial values. Product updates and removals accept exact product IDs or names.
 Signals can be removed only while pending and unreferenced by cycle or correction history; Atlas retains a deletion audit snapshot. To change a used signal, append a trace-verified correction instead.
+In a region snapshot, `signals` and `pending_signal_count` refer only to unconsumed signals; `recent_signals` explicitly labels each item pending or processed. Never describe processed signals as awaiting evaluation. Cycle records are historical evidence: a prior activated cycle does not mean the current user request ran a cycle. Claim a write only when the current write-tool result confirms it.
 If the user asks what a topic or event would change, run preview_recommendation_change using confidence 0.70
 when none is specified. Report product names, prices, scores, ranks, and simulated gates from the returned data.
 If a provider returns an empty answer after tools complete, summarize the verified tool output yourself.
@@ -157,42 +158,82 @@ def assistant_status() -> dict[str, str]:
     return llm_status()
 
 
-def _available_tools(question: str) -> list[str]:
-    """Expose read tools always and write tools only for explicit operator intent."""
-    names = ["get_portfolio_snapshot", "get_product_catalog", "get_region_snapshot", "preview_recommendation_change"]
-    normalized = question.casefold()
-    if re.search(r"\b(what if|what happens if|should i|how do i|how would|explain how|is it possible to)\b", normalized):
-        if re.search(r"\b(trace|traces|neatlogs|cycle id)\b", normalized):
-            names.append("inspect_cycle_trace")
-        return names
-    if re.search(r"\b(trace|traces|neatlogs|cycle id)\b", normalized):
-        names.append("inspect_cycle_trace")
-    if re.search(r"\b(repair|fix|correct|misclassif\w*)\b", normalized):
-        names.append("repair_signal")
-    if re.search(r"\b(create|add|register|set up|make)\b.{0,80}\b(region|candidate)\b|\b(new candidate|new region)\b", normalized):
-        names.append("create_candidate_region")
-    if re.search(r"\b(update|edit|rename|revise|change)\b.{0,80}\b(region|candidate|assumption|finance|traffic|conversion|cost|price)\b", normalized):
-        names.append("update_candidate_region")
-    if re.search(r"\b(delete|remove|discard)\b.{0,80}\b(region|candidate)\b", normalized):
-        names.append("remove_region")
-    lifecycle_verbs = r"\b(approve|activate|reject|pause|resume|archive|rollback|roll back|restore)\b"
-    if re.search(lifecycle_verbs, normalized):
-        names.append("set_region_lifecycle")
-    if re.search(r"\b(add|inject|record|submit|create)\b.{0,80}\b(signal|evidence|news|event|trend)\b", normalized):
-        names.append("add_synthetic_signal")
-    if re.search(r"\b(delete|remove|discard|withdraw)\b.{0,80}\b(signal|evidence)\b", normalized):
-        names.append("remove_pending_signal")
-    if re.search(r"\b(run|execute|process|start)\b.{0,80}\b(cycle|pipeline|regional update)\b", normalized):
-        names.append("run_region_cycle")
-    if re.search(r"\breplay\b.{0,80}\b(cycle|update)\b", normalized):
-        names.append("replay_region_cycle")
-    if re.search(
-        r"\b(create|add|register|make|new)\b.{0,80}\b(product|catalog item)\b|"
+_HYPOTHETICAL_INTENT = re.compile(
+    r"\b(what if|what happens if|should i|how do i|how would|explain how|is it possible to)\b",
+    re.I,
+)
+_NEGATED_INTENT = re.compile(
+    r"\b(don't|do not|never|not|shouldn't|should not|mustn't|must not|can't|cannot|"
+    r"can not|won't|will not|wouldn't|would not|didn't|did not|doesn't|does not|"
+    r"avoid|refrain from|without|no need to)\b",
+    re.I,
+)
+_WRITE_TOOL_PATTERNS = {
+    "repair_signal": r"\b(repair|fix|correct|misclassif\w*)\b",
+    "create_candidate_region": (
+        r"\b(create|add|register|set up|make)\b.{0,80}\b(region|candidate)\b"
+    ),
+    "update_candidate_region": (
+        r"\b(update|edit|rename|revise|change)\b.{0,80}\b"
+        r"(region|candidate|assumption|finance|traffic|conversion|cost|price)\b"
+    ),
+    "remove_region": r"\b(delete|remove|discard)\b.{0,80}\b(region|candidate)\b",
+    "set_region_lifecycle": r"\b(approve|activate|reject|decline|pause|resume|unpause|archive|rollback|roll back|restore)\b",
+    "add_synthetic_signal": r"\b(add|inject|record|submit|create)\b.{0,80}\b(signal|evidence|news|event|trend)\b",
+    "remove_pending_signal": r"\b(delete|remove|discard|withdraw)\b.{0,80}\b(signal|evidence)\b",
+    "run_region_cycle": r"\b(run|execute|process|start)\b.{0,80}\b(cycle|pipeline|regional update)\b",
+    "replay_region_cycle": r"\breplay\b.{0,80}\b(cycle|update)\b",
+    "manage_product_catalog": (
+        r"\b(create|add|register|make)\b.{0,80}\b(product|catalog item)\b|"
         r"\b(update|edit|change|rename)\b.{0,80}\b(product|catalog item)\b|"
-        r"\b(delete|remove|discard)\b.{0,80}\b(product|catalog item)\b",
-        normalized,
-    ):
-        names.append("manage_product_catalog")
+        r"\b(delete|remove|discard)\b.{0,80}\b(product|catalog item)\b"
+    ),
+}
+
+
+def _intent_clauses(question: str) -> list[str]:
+    """Split at sentence and contrast boundaries so each request is evaluated alone."""
+    normalized = question.replace("’", "'").casefold()
+    return [part.strip() for part in re.split(
+        r"(?<=[.!?;,])\s+|\b(?:but|however|instead)\b", normalized,
+    ) if part.strip()]
+
+
+def _positive_intent_matches(pattern: str, question: str) -> bool:
+    """Match an operation only inside a direct, non-negated, non-hypothetical clause."""
+    for clause in _intent_clauses(question):
+        if _HYPOTHETICAL_INTENT.search(clause) or _NEGATED_INTENT.search(clause):
+            continue
+        if re.search(pattern, clause, re.I):
+            return True
+    return False
+
+
+def _action_request_allowed(
+    name: str,
+    question: str,
+    arguments: dict[str, Any] | None = None,
+) -> bool:
+    """Enforce explicit positive user intent for every mutating assistant tool."""
+    pattern = _WRITE_TOOL_PATTERNS.get(name)
+    if pattern is None:
+        return False
+    if name == "set_region_lifecycle" and arguments is not None:
+        return _lifecycle_action_requested(str(arguments.get("action", "")), question)
+    if name == "manage_product_catalog" and arguments is not None:
+        return _catalog_action_requested(str(arguments.get("action", "")), question)
+    return _positive_intent_matches(pattern, question)
+
+
+def _available_tools(question: str) -> list[str]:
+    """Expose read tools always and write tools only for explicit positive intent."""
+    names = ["get_portfolio_snapshot", "get_product_catalog", "get_region_snapshot", "preview_recommendation_change"]
+    if re.search(r"\b(trace|traces|neatlogs|cycle id)\b", question, re.I):
+        names.append("inspect_cycle_trace")
+    names.extend(
+        name for name in _WRITE_TOOL_PATTERNS
+        if _action_request_allowed(name, question)
+    )
     return names
 
 
@@ -334,14 +375,10 @@ def ask_assistant(
                 else:
                     try:
                         arguments = json.loads(call.function.arguments)
-                        if name == "manage_product_catalog" and not _catalog_action_requested(
-                            arguments.get("action", ""), question
+                        if name in _WRITE_TOOL_PATTERNS and not _action_request_allowed(
+                            name, question, arguments
                         ):
-                            raise ValueError("the requested catalog action must be stated explicitly")
-                        if name == "set_region_lifecycle" and not _lifecycle_action_requested(
-                            arguments.get("action", ""), question
-                        ):
-                            raise ValueError("the requested lifecycle action must be stated explicitly")
+                            raise ValueError("the current message does not explicitly authorize this operation")
                         if name == "repair_signal" and (
                             arguments.get("region_id"), arguments.get("cycle_id")
                         ) not in verified_cycles:
@@ -373,7 +410,7 @@ def _tool_description(name: str) -> str:
     descriptions = {
         "get_portfolio_snapshot": "Read aggregate Atlas regions, product inventory, and recent outcomes.",
         "get_product_catalog": "Read the shared catalog, including prices, tags, stock, and recommendation eligibility.",
-        "get_region_snapshot": "Read one region's profile, top recommendations, signals, finance provenance, and cycles.",
+        "get_region_snapshot": "Read one region's profile, top recommendations, pending and recent signals with status, finance provenance, and historical cycles.",
         "preview_recommendation_change": "Preview a hypothetical topic/confidence change through Atlas's real deterministic gates, ranker, and evaluator; does not persist or activate.",
         "inspect_cycle_trace": "Read a sanitized Neatlogs trace summary for a cycle; trace text and prompt content are omitted.",
         "repair_signal": "Save a new audited correction for a signal only after verifying its cycle's Neatlogs trace. The original signal is retained.",
@@ -562,7 +599,10 @@ def _region_snapshot(path: Path, region_id: str) -> dict[str, Any]:
         region = _resolve_region_record(repository, region_id)
         region_id = region.id
         profile = repository.get_region_profile(region_id)
-        signals = repository.get_signals_by_region(region_id, limit=8)
+        pending_signals = repository.get_unprocessed_signals(region_id, limit=8)
+        pending_signal_count = repository.count_unprocessed_signals(region_id)
+        recent_signals = repository.get_signals_by_region(region_id, limit=8)
+        pending_signal_ids = {signal.id for signal in pending_signals}
         cycles = repository.list_update_cycles(region_id, limit=5)
         finance = repository.get_finance_assessments_by_region(region_id)
         signal_deletions = conn.execute(
@@ -591,9 +631,16 @@ def _region_snapshot(path: Path, region_id: str) -> dict[str, Any]:
             "price": float(product_by_id[item.product_id].price),
             "score": float(item.score),
         } for item in ranked[:5]],
+        "pending_signal_count": pending_signal_count,
         "signals": [{"id": item.id, "source_id": item.source_id, "topics": item.topics,
                      "confidence": float(item.confidence), "observed_at": item.observed_at.isoformat(),
-                     "evidence_excerpt": item.evidence_excerpt} for item in signals],
+                     "evidence_excerpt": item.evidence_excerpt, "status": "pending"}
+                    for item in pending_signals],
+        "recent_signals": [{"id": item.id, "source_id": item.source_id, "topics": item.topics,
+                            "confidence": float(item.confidence), "observed_at": item.observed_at.isoformat(),
+                            "evidence_excerpt": item.evidence_excerpt,
+                            "status": "pending" if item.id in pending_signal_ids else "processed"}
+                           for item in recent_signals],
         "removed_signals": [{"id": row["signal_id"], "removed_at": row["removed_at"],
                               "snapshot": json.loads(row["signal_json"])} for row in signal_deletions],
         "cycles": [{"id": cycle.id, "status": cycle.status.value, "reason": cycle.rejection_reason,
@@ -601,7 +648,7 @@ def _region_snapshot(path: Path, region_id: str) -> dict[str, Any]:
         "finance": finance_context,
         "_evidence": [{"kind": "region", "record_id": region.id, "label": f"Region {region.name}"},
                       *[{"kind": "cycle", "record_id": cycle.id, "label": f"Cycle {cycle.status.value}"} for cycle in cycles[:3]],
-                      *[{"kind": "signal", "record_id": signal.id, "label": f"Signal · {', '.join(signal.topics)}"} for signal in signals[:5]],
+                      *[{"kind": "signal", "record_id": signal.id, "label": f"Pending signal · {', '.join(signal.topics)}"} for signal in pending_signals[:5]],
                       *[{"kind": "signal", "record_id": row["signal_id"], "label": "Removed signal audit"} for row in signal_deletions]],
     }
 
@@ -661,8 +708,6 @@ def _find_region(path: Path, name: str):
 
 def _lifecycle_action_requested(action: str, question: str) -> bool:
     """Require the operator's message to name the lifecycle transition."""
-    if re.search(r"\b(what if|what happens if|should i|how do i|how would|explain how|is it possible to)\b", question, re.I):
-        return False
     verbs = {
         "approve": r"\b(approve|activate)\w*\b",
         "reject": r"\b(reject|decline)\w*\b",
@@ -672,20 +717,18 @@ def _lifecycle_action_requested(action: str, question: str) -> bool:
         "rollback": r"\b(rollback|roll back|restore)\w*\b",
     }
     pattern = verbs.get(action)
-    return bool(pattern and re.search(pattern, question, re.I))
+    return bool(pattern and _positive_intent_matches(pattern, question))
 
 
 def _catalog_action_requested(action: str, question: str) -> bool:
     """Require an explicit catalog create, edit, or removal request."""
-    if re.search(r"\b(what if|what happens if|should i|how do i|how would|explain how|is it possible to)\b", question, re.I):
-        return False
     patterns = {
         "create": r"\b(create|add|register|make|new)\b.{0,80}\b(product|catalog item)\b",
         "update": r"\b(update|edit|change|rename)\b.{0,80}\b(product|catalog item)\b",
         "remove": r"\b(delete|remove|discard)\b.{0,80}\b(product|catalog item)\b",
     }
     pattern = patterns.get(action)
-    return bool(pattern and re.search(pattern, question, re.I))
+    return bool(pattern and _positive_intent_matches(pattern, question))
 
 
 def _preview_recommendation_change(path: Path, arguments: dict[str, Any]) -> dict[str, Any]:
