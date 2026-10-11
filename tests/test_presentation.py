@@ -49,6 +49,7 @@ def test_no_finance_result():
 from decimal import Decimal
 
 from adaptive_commerce.presentation.view_models import (
+    prepare_approval_state,
     prepare_cycle_comparison_rows,
     prepare_ranking_comparison,
 )
@@ -126,3 +127,34 @@ def test_cycle_comparison_new_region_uses_consistent_arrow_safe_rank_values():
     assert by_product["boots"]["After"] == "2"
     assert all(row["Movement"] == "New" for row in rows)
     assert all(isinstance(row[column], str) for row in rows for column in row)
+
+
+def test_candidate_approval_state():
+    result = prepare_approval_state("candidate")
+
+    assert result["status"] == "Candidate"
+    assert result["show_actions"] is True
+    assert result["actions_enabled"] is False
+
+
+def test_active_approval_state():
+    result = prepare_approval_state("active")
+
+    assert result["status"] == "Active"
+    assert result["show_actions"] is False
+    assert result["actions_enabled"] is False
+
+
+def test_rejected_approval_state():
+    result = prepare_approval_state("rejected")
+
+    assert result["status"] == "Rejected"
+    assert result["show_actions"] is False
+    assert result["actions_enabled"] is False
+
+
+def test_unknown_approval_state():
+    result = prepare_approval_state("paused")
+
+    assert result["show_actions"] is False
+    assert result["actions_enabled"] is False

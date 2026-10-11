@@ -104,3 +104,38 @@ def prepare_cycle_comparison_rows(
             "Movement": movement,
         })
     return rows
+
+
+def prepare_approval_state(state: str) -> dict:
+    """Prepare approval controls for a region's lifecycle state."""
+
+    if state == "candidate":
+        return {
+            "status": "Candidate",
+            "show_actions": True,
+            "actions_enabled": False,
+            "message": "Awaiting human approval.",
+        }
+
+    if state == "active":
+        return {
+            "status": "Active",
+            "show_actions": False,
+            "actions_enabled": False,
+            "message": "This region is already active.",
+        }
+
+    if state == "rejected":
+        return {
+            "status": "Rejected",
+            "show_actions": False,
+            "actions_enabled": False,
+            "message": "This region has been rejected.",
+        }
+
+    return {
+        "status": state.replace("_", " ").title(),
+        "show_actions": False,
+        "actions_enabled": False,
+        "message": "No approval actions available for this state.",
+    }

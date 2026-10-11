@@ -68,3 +68,16 @@ def compare_recommendations(
         before=rank_products(products, before_profile, now=when, policy=policy),
         after=rank_products(products, after_profile, now=when, policy=policy),
     )
+
+
+from adaptive_commerce.domain.models import RecommendationVersion
+
+
+def list_recommendation_versions(
+    path: Path,
+    region_id: str,
+) -> list[RecommendationVersion]:
+    """Return saved recommendation versions for one region."""
+    with connect(path) as conn:
+        repository = Repository(conn)
+        return repository.get_version_lineage(region_id)

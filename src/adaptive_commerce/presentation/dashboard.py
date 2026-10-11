@@ -23,8 +23,14 @@ from adaptive_commerce.application.worker import replay_cycle, run_all_active_re
 from adaptive_commerce.domain import RegionState
 from adaptive_commerce.integrations.finance import FinanceInputs, read_cfo_export
 from adaptive_commerce.integrations.observability import initialize_tracing
-from adaptive_commerce.presentation.view_models import prepare_cycle_comparison_rows
-
+from adaptive_commerce.application.comparison import (
+    compare_recommendations,
+    list_recommendation_versions,
+)
+from adaptive_commerce.presentation.view_models import (
+    prepare_cycle_comparison_rows,
+    prepare_ranking_comparison,
+)
 
 def render_dashboard() -> None:
     """Render the chat-first Atlas workspace and its operator sections."""
@@ -422,36 +428,80 @@ def _render_recommendations(path: Path, region_id: str) -> None:
     catalog = get_product_catalog(path)
     if not ranked:
         st.info("This region has no active recommendation profile.")
-        return
-    current = st.columns(5)
-    for column, item in zip(current, ranked[:5]):
-        product = catalog[item.product_id]
-        with column:
-            st.markdown(f"**#{item.rank} · {product.name}**")
-            st.caption(f"${product.price:.2f} · {'In stock' if product.in_stock else 'Out of stock'}")
-            st.metric("Score", f"{item.score:.2f}")
-            with st.expander("Why this product"):
-                st.json(item.breakdown.model_dump(mode="json"))
+    else:
+        current = st.columns(5)
+        for column, item in zip(current, ranked[:5]):
+            product = catalog[item.product_id]
+            with column:
+                st.markdown(f"**#{item.rank} · {product.name}**")
+                st.caption(f"${product.price:.2f} · {'In stock' if product.in_stock else 'Out of stock'}")
+                st.metric("Score", f"{item.score:.2f}")
+                with st.expander("Why this product"):
+                    st.json(item.breakdown.model_dump(mode="json"))
     cycles = list_region_cycles(path, region_id)
     last = next((item for item in cycles if item.evaluation and item.evaluation.get("after")), None)
     if last is None:
         st.info("Run a regional cycle to see a persisted before/after comparison.")
-        return
-    st.divider()
-    st.markdown("#### Latest before / after")
-    st.caption(f"Cycle {last.id} · {last.status.value.title()} · {last.rejection_reason or 'Activated'}")
-    _render_comparison(last.evaluation.get("before", []), last.evaluation.get("after", []), catalog)
-    metrics = last.evaluation
-    a, b, c, d = st.columns(4)
-    a.metric("Active relevance", f"{metrics.get('active_relevance', 0):.2f}")
-    b.metric("Candidate relevance", f"{metrics.get('candidate_relevance', 0):.2f}")
-    c.metric("Active simulated profit", f"${metrics.get('active_profit', 0):.2f}")
-    d.metric("Candidate simulated profit", f"${metrics.get('candidate_profit', 0):.2f}")
+    else:
+        st.divider()
+        st.markdown("#### Latest before / after")
+        st.caption(f"Cycle {last.id} · {last.status.value.title()} · {last.rejection_reason or 'Activated'}")
+        _render_comparison(last.evaluation.get("before", []), last.evaluation.get("after", []), catalog)
+        metrics = last.evaluation
+        a, b, c, d = st.columns(4)
+        a.metric("Active relevance", f"{metrics.get('active_relevance', 0):.2f}")
+        b.metric("Candidate relevance", f"{metrics.get('candidate_relevance', 0):.2f}")
+        c.metric("Active simulated profit", f"${metrics.get('active_profit', 0):.2f}")
+        d.metric("Candidate simulated profit", f"${metrics.get('candidate_profit', 0):.2f}")
+
+    _render_version_comparison(path, region_id, catalog)
 
 
 def _render_comparison(before: list[dict], after: list[dict], catalog: dict) -> None:
     rows = prepare_cycle_comparison_rows(before, after, catalog)
     st.dataframe(rows, hide_index=True, width="stretch")
+
+
+def _render_version_comparison(path: Path, region_id: str, catalog: dict) -> None:
+    """Compare two saved recommendation versions without changing the active one."""
+    versions = list_recommendation_versions(path, region_id)
+    if len(versions) < 2:
+        return
+    st.divider()
+    st.markdown("#### Compare saved versions")
+    st.caption("Both versions are ranked against the same current catalog and policy; comparison does not activate either version.")
+    labels = {
+        version.id: f"{version.id[:8]} · {version.status.value.title()} · {version.created_at.astimezone().strftime('%b %d %H:%M')}"
+        for version in versions
+    }
+    before_col, after_col = st.columns(2)
+    with before_col:
+        before_id = st.selectbox(
+            "Before version", options=[item.id for item in versions], index=1,
+            format_func=labels.get, key=f"comparison_before_{region_id}",
+        )
+    with after_col:
+        after_id = st.selectbox(
+            "After version", options=[item.id for item in versions], index=0,
+            format_func=labels.get, key=f"comparison_after_{region_id}",
+        )
+    if before_id == after_id:
+        st.info("Select two different saved versions to compare.")
+    elif st.button("Compare versions", key=f"compare_versions_{region_id}"):
+        try:
+            result = compare_recommendations(path, region_id, before_id, after_id)
+            rows = prepare_ranking_comparison(result.before, result.after)
+            for row in rows:
+                product = catalog.get(row["Product"])
+                if product:
+                    row["Product"] = product.name
+            st.caption(f"Evaluated {result.evaluated_at.astimezone().strftime('%Y-%m-%d %H:%M %Z')}")
+            if rows:
+                st.dataframe(rows, hide_index=True, width="stretch")
+            else:
+                st.info("No eligible products were found in either version.")
+        except (ValueError, sqlite3.Error) as error:
+            st.error(f"Comparison unavailable: {error}")
 
 
 def _render_activity(path: Path, region_id: str) -> None:
